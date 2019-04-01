@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -19,21 +19,21 @@
 namespace FacturaScripts\Plugins\Community\Controller;
 
 use FacturaScripts\Core\App\AppSettings;
-use FacturaScripts\Core\Base\ControllerPermissions;
-use FacturaScripts\Dinamic\Model\User;
-use FacturaScripts\Plugins\webportal\Lib\WebPortal\PortalController;
+use FacturaScripts\Plugins\Community\Lib;
+use FacturaScripts\Plugins\Community\Lib\WebPortal\PortalControllerWizard;
 use FacturaScripts\Plugins\Community\Model\ContactFormTree;
 use FacturaScripts\Plugins\Community\Model\Issue;
 use FacturaScripts\Plugins\Community\Model\WebProject;
-use Symfony\Component\HttpFoundation\Response;
 
 /**
  * This class allow us to manage new issues.
  *
  * @author Carlos García Gómez <carlos@facturascripts.com>
  */
-class AddIssue extends PortalController
+class AddIssue extends PortalControllerWizard
 {
+
+    use Lib\PointsMethodsTrait;
 
     /**
      * The new issue.
@@ -72,30 +72,6 @@ class AddIssue extends PortalController
     }
 
     /**
-     * * Runs the controller's private logic.
-     *
-     * @param Response              $response
-     * @param User                  $user
-     * @param ControllerPermissions $permissions
-     */
-    public function privateCore(&$response, $user, $permissions)
-    {
-        parent::privateCore($response, $user, $permissions);
-        $this->commonCore();
-    }
-
-    /**
-     * Execute the public part of the controller.
-     *
-     * @param Response $response
-     */
-    public function publicCore(&$response)
-    {
-        parent::publicCore($response);
-        $this->commonCore();
-    }
-
-    /**
      * Execute common code between private and public core.
      */
     protected function commonCore()
@@ -104,20 +80,42 @@ class AddIssue extends PortalController
         $this->issue = new Issue();
 
         $body = $this->request->get('body', '');
-        if (!empty($body)) {
-            $this->issue->body = $body;
-            $this->issue->creationroute = implode(', ', $this->getTreeList());
-            $this->issue->idcontacto = $this->contact->idcontacto;
-            $this->issue->idproject = $this->request->get('idproject');
-            $this->issue->idteam = AppSettings::get('community', 'idteamsup');
-            $this->issue->idtree = $this->request->get('idtree');
-            
-            if ($this->issue->save()) {
-                $this->miniLog->notice($this->i18n->trans('record-updated-correctly'));
-                $this->response->headers->set('Refresh', '0; ' . $this->issue->url('public'));
-            } else {
-                $this->miniLog->alert($this->i18n->trans('record-save-error'));
-            }
+        if (empty($body)) {
+            return;
         }
+
+        if (!$this->contactHasPoints($this->pointCost())) {
+            return $this->redirToYouNeedMorePointsPage();
+        }
+
+        /// save issue
+        $this->issue->body = $body;
+        $this->issue->creationroute = implode(', ', $this->getTreeList());
+        $this->issue->idcontacto = $this->contact->idcontacto;
+        $this->issue->idproject = $this->request->get('idproject');
+        $this->issue->idtree = $this->request->get('idtree');
+        $this->setTeam();
+
+        if ($this->issue->save()) {
+            $this->miniLog->notice($this->i18n->trans('record-updated-correctly'));
+            $this->subtractPoints();
+
+            /// redit to new issue
+            $this->response->headers->set('Refresh', '0; ' . $this->issue->url('public'));
+            return;
+        }
+
+        $this->miniLog->alert($this->i18n->trans('record-save-error'));
+    }
+
+    protected function setTeam()
+    {
+        $project = new WebProject();
+        if (!empty($this->issue->idproject) && $project->loadFromCode($this->issue->idproject)) {
+            $this->issue->idteam = empty($project->idteam) ? AppSettings::get('community', 'idteamsup') : $project->idteam;
+            return;
+        }
+
+        $this->issue->idteam = AppSettings::get('community', 'idteamsup');
     }
 }

@@ -28,9 +28,12 @@
             <widget type="text" fieldname="name" />
         </column>
         <column name="description" order="120">
-            <widget type="text" fieldname="description" />
+            <widget type="textarea" fieldname="description" />
         </column>
-        <column name="creation-date" display="right" order="130">
+        <column name="visit-counter" display="right" order="130">
+            <widget type="number" fieldname="visitcount" decimal="0" />
+        </column>
+        <column name="creation-date" display="right" order="140">
             <widget type="date" fieldname="creationdate" />
         </column>
     </columns>

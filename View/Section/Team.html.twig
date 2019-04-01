@@ -1,61 +1,68 @@
-{% set team = fsc.getTeam() %}
+{% set team = fsc.getMainModel() %}
 
 <div class="container">
     <div class="columns">
-        <div class="column col-12">
+        <div class="column col-2 col-xs-12 text-right">
+            <i class="fas fa-users fa-3x fa-fw" aria-hidden="true"></i>
+            {% if team.private %}
+                <i class="fas fa-lock fa-3x fa-fw" aria-hidden="true"></i>
+            {% endif %}
+        </div>
+        <div class="column">
             <h1 class="h3">
-                <i class="fa fa-users fa-fw" aria-hidden="true"></i> {{ team.name }}
+                {{ team.name }}
             </h1>
-            <p>{{ team.description | raw }}</p>
-        </div>
-    </div>
-    <div class="columns">
-        <div class="column col-4">
-            <a href="{{ team.url('public-list') }}" class="btn">
-                <i class="fa fa-arrow-left" aria-hidden="true"></i>
-                <span class="hide-xs">{{ i18n.trans('all') }}</span>
-            </a>
-        </div>
-        <div class="column col-8 text-right">
-            <div class="btn-group">
-                {% if fsc.showJoinButton() %}
-                    <a href="{{ team.url('public') }}?action=join" class="btn btn-success">
-                        <i class="fa fa-sign-in" aria-hidden="true"></i> {{ i18n.trans('join') }}
-                    </a>
-                {% elseif fsc.contact %}
-                    <a href="{{ team.url('public') }}?action=leave" class="btn btn-error">
-                        <i class="fa fa-sign-out" aria-hidden="true"></i> {{ i18n.trans('leave') }}
-                    </a>
-                    <a href="#" class="btn" onclick="return showModal('editTeamModal');">
-                        <i class="fa fa-edit" aria-hidden="true"></i>
-                        <span class="hide-xs">{{ i18n.trans('edit') }}</span>
+            <p>
+                {{ team.description | raw | nl2br }}
+                {% if team.idcontacto %}
+                    <br/><b>{{ i18n.trans('admin') }}</b>:
+                    <a href="{{ asset(team.getContactProfile()) }}">
+                        {{ team.getContactAlias() }}
                     </a>
                 {% endif %}
-            </div>
+            </p>
+            {% set status = fsc.getMemberStatus() %}
+            {% if status == 'out' %}
+                <a href="#" class="btn btn-success" onclick="return showModal('modalJoinTeam');">
+                    <i class="fas fa-sign-in-alt" aria-hidden="true"></i> {{ i18n.trans('join-team', {'%team%': team.name}) }}
+                </a>
+                <form action="{{ team.url('public') }}" method="post">
+                    <input type="hidden" name="action" value="join"/>
+                    <div class="modal" id="modalJoinTeam">
+                        <a href="#close" class="modal-overlay" aria-label="Close" onclick="return hideModal('modalJoinTeam');"></a>
+                        <div class="modal-container">
+                            <div class="modal-header">
+                                <a href="#close" class="btn btn-clear float-right" aria-label="Close" onclick="return hideModal('modalJoinTeam');"></a>
+                                <div class="modal-title h5">{{ i18n.trans('join-team', {'%team%': team.name}) }}</div>
+                            </div>
+                            <div class="modal-body">
+                                <div class="content">
+                                    <div class="form-group">
+                                        <b>¿Por qué motivo desea unirse a este equipo?</b>
+                                        <br/>
+                                        Ayúdenos a comprobar que no es un bot.
+                                        <textarea name="observations" class="form-input" rows="3" required=""></textarea>
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="modal-footer">
+                                <button type="submit" class="btn btn-success">
+                                    {{ i18n.trans('accept') }}
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </form>
+            {% elseif status == 'pending' %}
+                <a href="{{ team.url('public') }}" class="btn btn-success">
+                    <i class="fas fa-paper-plane" aria-hidden="true"></i> {{ i18n.trans('request-sent') }}
+                </a>
+            {% elseif status == 'in' %}
+                <a href="{{ team.url('public') }}?action=leave" class="btn btn-error">
+                    <i class="fas fa-sign-out-alt" aria-hidden="true"></i> {{ i18n.trans('leave-team') }}
+                </a>
+            {% endif %}
         </div>
     </div>
 </div>
 <br/>
-
-<form action="" method="post">
-    <input type="hidden" name="action" value="edit"/>
-    <div class="modal" id="editTeamModal">
-        <a href="#close" class="modal-overlay" aria-label="Close" onclick="return hideModal('editTeamModal');"></a>
-        <div class="modal-container">
-            <div class="modal-header">
-                <a href="#close" onclick="return hideModal('editTeamModal');" class="btn btn-clear float-right" aria-label="Close"></a>
-                <div class="modal-title h5">{{ i18n.trans('description') }}</div>
-            </div>
-            <div class="modal-body">
-                <div class="content">
-                    <div class="form-group">
-                        <textarea name="description" class="form-input" rows="3">{{ team.description }}</textarea>
-                    </div>
-                    <button type="submit" class="btn btn-block btn-primary">
-                        {{ i18n.trans('save') }}
-                    </button>
-                </div>
-            </div>
-        </div>
-    </div>
-</form>

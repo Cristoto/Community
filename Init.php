@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -19,7 +19,9 @@
 namespace FacturaScripts\Plugins\Community;
 
 use FacturaScripts\Core\Base\DataBase\DataBaseWhere;
+use FacturaScripts\Core\Base\EventManager;
 use FacturaScripts\Core\Base\InitClass;
+use FacturaScripts\Plugins\Community\Lib\IssueNotification;
 use FacturaScripts\Plugins\Community\Model\Language;
 use FacturaScripts\Plugins\Community\Model\WebProject;
 use FacturaScripts\Plugins\Community\Model\WebTeam;
@@ -35,7 +37,13 @@ class Init extends InitClass
 
     public function init()
     {
-        
+        EventManager::attach('Model:Issue:saveInsert', function($model) {
+            IssueNotification::notify($model);
+        });
+
+        EventManager::attach('Model:IssueComment:saveInsert', function($model) {
+            IssueNotification::notifyComment($model);
+        });
     }
 
     public function update()
@@ -45,7 +53,10 @@ class Init extends InitClass
             'WebDocumentation' => '/doc*',
             'PluginList' => '/plugins',
             'TeamList' => '/teams',
+            'EditWebTeam' => '/teams/*',
+            'EditPublication' => '/publications/*',
             'TranslationList' => '/translations',
+            'ViewProfile' => '/profiles/*',
         ];
 
         $webPage = new WebPage();

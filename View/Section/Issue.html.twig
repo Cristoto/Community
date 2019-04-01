@@ -1,25 +1,39 @@
-{% set issue = fsc.getIssue() %}
+{% set issue = fsc.getMainModel() %}
 {% set contact = issue.getContact() %}
+{% set project = issue.getProject() %}
+{% set team = issue.getTeam() %}
 
 <div class="container">
     <div class="columns">
         <div class="column col-2 col-xs-12 text-right">
-            <span class="label">{{ contact.fullName() }}</span><br/>
-            {% if contact.empresa %}
-                <span class="label">{{ contact.empresa }}</span><br/>
-            {% endif %}
-            <img src="{{ fsc.getGravatar(contact.email) }}" alt="{{ contact.fullName() }}" class="custom-img-responsive"/>
+            <span class="label">{{ issue.getContactAlias() }}</span><br/>
+            <a href="{{ asset(issue.getContactProfile()) }}">
+                <img src="{{ contact.gravatar() }}" alt="{{ issue.getContactAlias() }}" class="custom-img-responsive"/>
+            </a>
         </div>
-        <div class="column">
+        <div class="column col-10 col-xs-12">
             {% if issue.closed %}
                 <span class="label label-error">{{ i18n.trans('closed') }}</span>
             {% endif %}
             <h1 class="h3">{{ issue.title() }}</h1>
-            <small>{{ issue.creationroute }}</small>
-            <p>{{ issue.body | raw | nl2br }}</p>
             <small>
-                <i class="fa fa-calendar" aria-hidden="true"></i> {{ issue.creationdate }} |
-                <i class="fa fa-clock-o" aria-hidden="true"></i> {{ issue.lastmod }}
+                <i class="fas fa-mouse-pointer" aria-hidden="true"></i> {{ issue.creationroute }}
+                {% if project.exists() %}
+                    &nbsp;
+                    <i class="fas fa-plug" aria-hidden="true"></i> <a href="{{ project.url('public') }}">{{ project.name }}</a>
+                {% endif %}
+                &nbsp;
+                <i class="fas fa-users" aria-hidden="true"></i> <a href="{{ team.url('public') }}">{{ team.name }}</a>
+            </small>
+            <p class="mt-1">
+                {{ issue.html() | raw }}
+            </p>
+            <small>
+                <i class="fas fa-globe-americas" aria-hidden="true"></i> {{ contact.country() }}
+                &nbsp;
+                <i class="far fa-calendar-alt" aria-hidden="true"></i> {{ issue.creationdate }}
+                &nbsp;
+                <i class="fas fa-clock" aria-hidden="true"></i> {{ issue.lastmod }}
             </small>
         </div>
     </div>

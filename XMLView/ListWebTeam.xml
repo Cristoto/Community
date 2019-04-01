@@ -28,16 +28,16 @@
             <widget type="text" fieldname="name" />
         </column>
         <column name="description" order="120">
-            <widget type="text" fieldname="description" />
+            <widget type="textarea" fieldname="description" />
         </column>
         <column name="members" display="right" order="130">
-            <widget type="number" fieldname="nummembers" />
+            <widget type="number" fieldname="nummembers" decimal="0" />
         </column>
         <column name="requests" display="right" order="140">
-            <widget type="number" fieldname="numrequests" />
+            <widget type="number" fieldname="numrequests" decimal="0" />
         </column>
-        <column name="creation-date" display="right" order="150">
-            <widget type="date" fieldname="creationdate" />
+        <column name="visit-counter" display="right" order="150">
+            <widget type="number" fieldname="visitcount" decimal="0" />
         </column>
     </columns>
 </view>

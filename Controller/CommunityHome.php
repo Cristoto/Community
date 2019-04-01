@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -20,6 +20,7 @@ namespace FacturaScripts\Plugins\Community\Controller;
 
 use FacturaScripts\Core\Base\DataBase\DataBaseWhere;
 use FacturaScripts\Plugins\Community\Model\WebTeamMember;
+use FacturaScripts\Plugins\webportal\Lib\WebPortal\ListSection;
 use FacturaScripts\Plugins\webportal\Lib\WebPortal\SectionController;
 
 /**
@@ -31,14 +32,6 @@ class CommunityHome extends SectionController
 {
 
     /**
-     * A list of teams.
-     * TODO: Unused.
-     *
-     * @var array
-     */
-    private $teams;
-
-    /**
      * Execute common code between private and public core.
      */
     protected function commonCore()
@@ -46,9 +39,103 @@ class CommunityHome extends SectionController
         parent::commonCore();
 
         /// hide sectionController template if all sections are empty
-        if ($this->getTemplate() == 'Master/SectionController.html.twig') {
+        if ($this->getTemplate() == 'Master/SectionController.html.twig' && '' == $this->request->get('activetab', '')) {
             $this->hideSections();
         }
+    }
+
+    protected function createMyIssuesSection($name = 'ListIssue')
+    {
+        $this->addListSection($name, 'Issue', 'issues', 'fas fa-question-circle', 'your');
+        $this->sections[$name]->template = 'Section/Issues.html.twig';
+        $this->addSearchOptions($name, ['body', 'creationroute']);
+        $this->addOrderOption($name, ['lastmod'], 'last-update', 2);
+        $this->addOrderOption($name, ['creationdate'], 'date');
+
+        /// buttons
+        $contactButton = [
+            'action' => 'ContactForm',
+            'color' => 'success',
+            'icon' => 'fas fa-plus',
+            'label' => 'new',
+            'type' => 'link',
+        ];
+        $this->addButton($name, $contactButton);
+    }
+
+    protected function createPublicationsSection($name, $team = '')
+    {
+        $this->addListSection($name, 'Publication', 'publications', 'fas fa-newspaper', $team);
+        $this->addSearchOptions($name, ['title', 'body']);
+        $this->addOrderOption($name, ['creationdate'], 'date', 2);
+        $this->addOrderOption($name, ['visitcount'], 'visit-counter');
+
+        /// buttons
+        if ($this->user) {
+            $button = [
+                'action' => 'AddPublication',
+                'color' => 'success',
+                'icon' => 'fas fa-plus',
+                'label' => 'new',
+                'type' => 'link'
+            ];
+            $this->addButton($name, $button);
+        }
+    }
+
+    protected function createTeamIssuesSection($name = 'ListIssue-teams')
+    {
+        $this->addListSection($name, 'Issue', 'issues', 'fas fa-question-circle', 'teams');
+        $this->sections[$name]->template = 'Section/Issues.html.twig';
+        $this->addSearchOptions($name, ['body', 'creationroute', 'idissue']);
+        $this->addOrderOption($name, ['lastmod'], 'last-update');
+        $this->addOrderOption($name, ['creationdate'], 'date');
+        $this->addOrderOption($name, ['priority', 'lastmod'], 'priority', 2);
+
+        /// buttons
+        $contactButton = [
+            'action' => 'ContactForm',
+            'color' => 'success',
+            'icon' => 'fas fa-plus',
+            'label' => 'new',
+            'type' => 'link',
+        ];
+        $this->addButton($name, $contactButton);
+
+        /// filters
+        $this->addFilterDatePicker($name, 'fromdate', 'from-date', 'creationdate', '>=');
+        $this->addFilterDatePicker($name, 'untildate', 'until-date', 'creationdate', '<=');
+
+        $teams = [
+            $teams[] = ['code' => '', 'description' => '------']
+        ];
+        foreach ($this->getTeamsMemberData() as $member) {
+            $team = $member->getTeam();
+            $teams[] = ['code' => $team->idteam, 'description' => $team->name];
+        }
+        $this->addFilterSelect($name, 'idteam', 'team', 'idteam', $teams);
+
+        $where = [new DataBaseWhere('closed', false)];
+        $this->addFilterCheckbox($name, 'closed', 'closed', 'closed', '=', true, $where);
+    }
+
+    protected function createTeamLogSection($name = 'ListWebTeamLog')
+    {
+        $this->addListSection($name, 'WebTeamLog', 'logs', 'fas fa-file-medical-alt', 'teams');
+        $this->sections[$name]->template = 'Section/TeamLogs.html.twig';
+        $this->addSearchOptions($name, ['description']);
+        $this->addOrderOption($name, ['time'], 'date', 2);
+
+        /// filters
+        $this->addFilterDatePicker($name, 'fromdate', 'from-date', 'creationdate', '>=');
+        $this->addFilterDatePicker($name, 'untildate', 'until-date', 'creationdate', '<=');
+
+        $teams = [];
+        foreach ($this->getTeamsMemberData() as $member) {
+            $team = $member->getTeam();
+            $teams[] = ['code' => $team->idteam, 'description' => $team->name,];
+        }
+        $this->addFilterSelect($name, 'idteam', 'team', 'idteam', $teams);
     }
 
     /**
@@ -56,58 +143,62 @@ class CommunityHome extends SectionController
      */
     protected function createSections()
     {
-        if (null === $this->contact) {
+        if (empty($this->contact)) {
             $this->setTemplate('Master/PortalTemplate');
             return;
         }
 
-        $this->addSection('home', ['icon' => 'fa-home', 'label' => $this->i18n->trans('home')]);
+        $this->addHtmlSection('home', 'home');
+        $this->createMyIssuesSection();
 
-        $this->addListSection('myissues', 'Issue', 'Section/Issues', 'issues', 'fa-question-circle', 'your');
-        $this->addSearchOptions('myissues', ['body', 'creationroute']);
-        $this->addOrderOption('myissues', 'lastmod', 'last-update', 2);
-        $this->addOrderOption('myissues', 'creationdate', 'date');
-        $this->addButton('myissues', 'ContactForm', 'new', 'fa-plus');
-
-        $this->addListSection('issues', 'Issue', 'Section/Issues', 'issues', 'fa-question-circle', 'teams');
-        $this->addSearchOptions('issues', ['body', 'creationroute']);
-        $this->addOrderOption('issues', 'lastmod', 'last-update', 2);
-        $this->addOrderOption('issues', 'creationdate', 'date');
-
-        $this->addListSection('logs', 'WebTeamLog', 'Section/TeamLogs', 'logs', 'fa-file-text-o', 'teams');
-        $this->addSearchOptions('logs', ['description']);
-        $this->addOrderOption('logs', 'time', 'date', 2);
+        if (count($this->getTeamsMemberData()) > 0) {
+            $this->createPublicationsSection('ListPublication', 'teams');
+            $this->createTeamIssuesSection();
+            $this->createTeamLogSection();
+        }
     }
 
     /**
-     * Return a list of team memebers.
+     * Return the list of team member relations of this contact.
      *
      * @return WebTeamMember[]
      */
-    protected function getTeams(): array
+    protected function getTeamsMemberData(): array
     {
         $teamMember = new WebTeamMember();
-        $where = [new DataBaseWhere('idcontacto', $this->contact->idcontacto)];
+        $where = [
+            new DataBaseWhere('idcontacto', $this->contact->idcontacto),
+            new DataBaseWhere('accepted', true)
+        ];
         return $teamMember->all($where, [], 0, 0);
     }
 
     /**
      * Return when was do it the last modification.
      *
-     * @param array $section
+     * @param ListSection $section
      *
      * @return int
      */
-    protected function getSectionLastmod(array &$section): int
+    protected function getSectionLastmod(&$section): int
     {
         $lastMod = 0;
+        foreach ($section->cursor as $cursor) {
+            if (isset($cursor->creationdate) && strtotime($cursor->creationdate) > $lastMod) {
+                $lastMod = strtotime($cursor->creationdate);
+            }
 
-        if (isset($section['cursor'][0]->creationdate) && strtotime($section['cursor'][0]->creationdate) > $lastMod) {
-            $lastMod = strtotime($section['cursor'][0]->creationdate);
-        }
+            if (isset($cursor->lastmod) && strtotime($cursor->lastmod) > $lastMod) {
+                $lastMod = strtotime($cursor->lastmod);
+            }
 
-        if (isset($section['cursor'][0]->lastmod) && strtotime($section['cursor'][0]->lastmod) > $lastMod) {
-            $lastMod = strtotime($section['cursor'][0]->lastmod);
+            if (isset($cursor->fecha) && strtotime($cursor->fecha) > $lastMod) {
+                $lastMod = strtotime($cursor->fecha);
+            }
+
+            if (isset($cursor->actualizado) && $cursor->actualizado > $lastMod) {
+                $lastMod = $cursor->actualizado;
+            }
         }
 
         return $lastMod;
@@ -125,10 +216,10 @@ class CommunityHome extends SectionController
         $empty = true;
         $lastMod = 0;
         foreach ($this->sections as $name => $section) {
-            if ($section['count'] > 0) {
+            if ($section->count > 0) {
                 $empty = false;
             } elseif ($name !== 'home') {
-                unset($this->sections[$name]);
+                $this->sections[$name]->settings['active'] = false;
             }
 
             if ($this->getSectionLastmod($section) > $lastMod) {
@@ -157,25 +248,30 @@ class CommunityHome extends SectionController
      */
     protected function loadData(string $sectionName)
     {
+        $idTeams = [];
+        foreach ($this->getTeamsMemberData() as $member) {
+            $idTeams[] = $member->idteam;
+        }
         $where = [];
+
         switch ($sectionName) {
-            case 'issues':
+            case 'ListIssue-teams':
                 $where[] = new DataBaseWhere('idcontacto', $this->contact->idcontacto, '!=');
-                /// no break
-            case 'logs':
-                $idTeams = [];
-                foreach ($this->getTeams() as $member) {
-                    if ($member->accepted) {
-                        $idTeams[] = $member->idteam;
-                    }
-                }
+            /// no break
+            case 'ListWebTeamLog':
                 $where[] = new DataBaseWhere('idteam', implode(',', $idTeams), 'IN');
-                $this->loadListSection($sectionName, $where);
+                $this->sections[$sectionName]->loadData('', $where);
                 break;
 
-            case 'myissues':
+            case 'ListIssue':
                 $where[] = new DataBaseWhere('idcontacto', $this->contact->idcontacto);
-                $this->loadListSection($sectionName, $where);
+                $this->sections[$sectionName]->loadData('', $where);
+                break;
+
+            case 'ListPublication':
+                $where[] = new DataBaseWhere('idteam', implode(',', $idTeams), 'IN');
+                $where[] = new DataBaseWhere('idteam', null, 'IS', 'OR');
+                $this->sections[$sectionName]->loadData('', $where);
                 break;
         }
     }

@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -26,7 +26,8 @@ use FacturaScripts\Plugins\webportal\Model\WebPage;
 /**
  * Description of Translation
  *
- * @author Raul Jimenez <raul.jimenez@nazcanetworks.com>
+ * @author Raul Jimenez         <raul.jimenez@nazcanetworks.com>
+ * @author Carlos García Gómez  <carlos@facturascripts.com>
  */
 class Translation extends Base\ModelClass
 {
@@ -104,6 +105,31 @@ class Translation extends Base\ModelClass
     }
 
     /**
+     * 
+     * @return self[]
+     */
+    public function getChildren()
+    {
+        $children = [];
+
+        $childrenLanguages = [];
+        $language = $this->getLanguage();
+        foreach ($language->all([], [], 0, 0) as $lang) {
+            if ($lang->parentcode == $language->langcode) {
+                $childrenLanguages[] = $lang->langcode;
+            }
+        }
+
+        foreach ($this->getEquivalents() as $trans) {
+            if (in_array($trans->langcode, $childrenLanguages)) {
+                $children[] = $trans;
+            }
+        }
+
+        return $children;
+    }
+
+    /**
      * Returns equivalent translations.
      * 
      * @param string $name
@@ -121,6 +147,17 @@ class Translation extends Base\ModelClass
     }
 
     /**
+     * 
+     * @return Language
+     */
+    public function getLanguage()
+    {
+        $language = new Language();
+        $language->loadFromCode($this->langcode);
+        return $language;
+    }
+
+    /**
      * This function is called when creating the model table. Returns the SQL
      * that will be executed after the creation of the table. Useful to insert values
      * default.
@@ -129,8 +166,10 @@ class Translation extends Base\ModelClass
      */
     public function install()
     {
+        /// needed dependencies
         new Language();
         new WebProject();
+
         return parent::install();
     }
 
@@ -165,7 +204,7 @@ class Translation extends Base\ModelClass
         $this->name = Utils::noHtml($this->name);
         $this->translation = Utils::noHtml($this->translation);
 
-        if (!preg_match('/^[a-zA-Z0-9_\-]{2,100}$/', $this->name)) {
+        if (!preg_match('/^[a-zA-Z0-9_\-\+]{2,100}$/', $this->name)) {
             self::$miniLog->alert(self::$i18n->trans('invalid-name') . ' ' . $this->name);
             return false;
         }

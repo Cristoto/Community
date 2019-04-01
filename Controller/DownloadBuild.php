@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -24,7 +24,9 @@ use FacturaScripts\Dinamic\Model\User;
 use FacturaScripts\Plugins\Community\Model\WebBuild;
 use FacturaScripts\Plugins\Community\Model\WebProject;
 use FacturaScripts\Plugins\webportal\Lib\WebPortal\PortalController;
+use Symfony\Component\HttpFoundation\BinaryFileResponse;
 use Symfony\Component\HttpFoundation\Response;
+use Symfony\Component\HttpFoundation\ResponseHeaderBag;
 
 /**
  * Description of DownloadBuild
@@ -50,7 +52,7 @@ class DownloadBuild extends PortalController
     {
         $pageData = parent::getPageData();
         $pageData['menu'] = 'web';
-        $pageData['icon'] = 'fa-file-archive-o';
+        $pageData['icon'] = 'fas fa-file-archive-o';
         $pageData['showonmenu'] = false;
 
         return $pageData;
@@ -81,6 +83,23 @@ class DownloadBuild extends PortalController
     }
 
     /**
+     * 
+     * @return bool
+     */
+    protected function contactCanDownload()
+    {
+        if (!$this->currentProject->private) {
+            return true;
+        }
+
+        if (empty($this->contact)) {
+            return false;
+        }
+
+        return $this->currentProject->idcontacto == $this->contact->idcontacto;
+    }
+
+    /**
      * Returns the download link from the build.
      *
      * @param WebBuild $build
@@ -96,20 +115,25 @@ class DownloadBuild extends PortalController
 
         $build->increaseDownloads();
 
-        $this->response->headers->set('Content-type', $attachedFile->mimetype);
-        $this->response->headers->set('Content-disposition', 'attachment; filename="' . $build->fileName() . '"');
-        $this->response->headers->set('Content-length', $attachedFile->size);
-        $this->response->setContent(file_get_contents(FS_FOLDER . DIRECTORY_SEPARATOR . $attachedFile->path));
+        $filePath = FS_FOLDER . DIRECTORY_SEPARATOR . $attachedFile->path;
+        $this->response = new BinaryFileResponse($filePath);
+        $this->response->setContentDisposition(ResponseHeaderBag::DISPOSITION_ATTACHMENT, $build->fileName());
     }
 
     /**
      * Returns the file for project/version if it's available.
      *
-     * @param $idProject
-     * @param $buildVersion
+     * @param int   $idProject
+     * @param float $buildVersion
      */
     protected function findBuild($idProject, $buildVersion)
     {
+        if (!$this->contactCanDownload()) {
+            $this->response->setContent('UNAUTHORIZED');
+            $this->response->setStatusCode(Response::HTTP_UNAUTHORIZED);
+            return;
+        }
+
         $where = [new DataBaseWhere('idproject', $idProject)];
         if (is_numeric($buildVersion)) {
             $where[] = new DataBaseWhere('version', $buildVersion);
@@ -128,6 +152,11 @@ class DownloadBuild extends PortalController
             if ('beta' === $buildVersion && ($build->beta || $build->stable)) {
                 return $this->downloadBuild($build);
             }
+        }
+
+        /// none selected? We chose the first one
+        foreach ($buildModel->all($where, ['version' => 'DESC']) as $build) {
+            return $this->downloadBuild($build);
         }
 
         $this->response->setContent('BUILD-NOT-FOUND');

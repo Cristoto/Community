@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -20,9 +20,10 @@ namespace FacturaScripts\Plugins\Community\Controller;
 
 use FacturaScripts\Core\App\AppSettings;
 use FacturaScripts\Core\Base\DataBase\DataBaseWhere;
+use FacturaScripts\Plugins\Community\Model\License;
 use FacturaScripts\Plugins\Community\Model\WebProject;
-use FacturaScripts\Plugins\Community\Model\WebTeamMember;
-use FacturaScripts\Plugins\webportal\Lib\WebPortal\SectionController;
+use FacturaScripts\Plugins\Community\Model\WebTeamLog;
+use FacturaScripts\Plugins\webportal\Lib\WebPortal\EditSectionController;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -30,7 +31,7 @@ use Symfony\Component\HttpFoundation\Response;
  *
  * @author Carlos García Gómez <carlos@facturascripts.com>
  */
-class ViewPlugin extends SectionController
+class ViewPlugin extends EditSectionController
 {
 
     /**
@@ -41,56 +42,129 @@ class ViewPlugin extends SectionController
     protected $project;
 
     /**
-     * * Returns true if contact can edit this plugin.
+     * Returns true if contact can edit this plugin.
      *
      * @return bool
      */
-    public function contactCanEdit(): bool
+    public function contactCanEdit()
     {
         if ($this->user) {
             return true;
         }
 
-        if (null === $this->contact) {
+        if (empty($this->contact)) {
             return false;
         }
 
-        $idteamdev = AppSettings::get('community', 'idteamdev', '');
-        if (empty($idteamdev)) {
-            return false;
-        }
-
-        $member = new WebTeamMember();
-        $where = [
-            new DataBaseWhere('idcontacto', $this->contact->idcontacto),
-            new DataBaseWhere('idteam', $idteamdev),
-            new DataBaseWhere('accepted', true)
-        ];
-
-        return $member->loadFromCode('', $where);
+        $project = $this->getMainModel();
+        return ($this->contact->idcontacto === $project->idcontacto);
     }
 
     /**
-     * Return the project by code.
+     * 
+     * @return bool
+     */
+    public function contactCanSee()
+    {
+        $project = $this->getMainModel();
+        if (!$project->private) {
+            return true;
+        }
+
+        return $this->contactCanEdit();
+    }
+
+    /**
+     * 
+     * @param string $licenseCode
+     *
+     * @return License
+     */
+    public function getLicense($licenseCode)
+    {
+        $license = new License();
+        $license->loadFromCode($licenseCode);
+        return $license;
+    }
+
+    /**
+     * 
+     * @param bool $reload
      *
      * @return WebProject
      */
-    public function getProject(): WebProject
+    public function getMainModel($reload = false)
     {
-        if (isset($this->project)) {
+        if (isset($this->project) && !$reload) {
             return $this->project;
         }
 
-        $project = new WebProject();
-        $code = $this->request->get('code', '');
-        if (!empty($code)) {
-            $project->loadFromCode($code);
-            return $project;
+        $this->project = new WebProject();
+        $uri = explode('/', $this->uri);
+        $this->project->loadFromCode('', [new DataBaseWhere('name', end($uri))]);
+        return $this->project;
+    }
+
+    /**
+     * 
+     * @param string $date
+     * @param string $max
+     *
+     * @return bool
+     */
+    public function isDateOld($date, $max)
+    {
+        return strtotime($date) < strtotime($max);
+    }
+
+    /**
+     * Returns true if we can edit this model object.
+     *
+     * @param object $model
+     *
+     * @return bool
+     */
+    protected function checkModelSecurity($model)
+    {
+        if (!$this->contactCanEdit()) {
+            return false;
         }
 
-        $uri = explode('/', $this->uri);
-        $project->loadFromCode('', [new DataBaseWhere('name', end($uri))]);
-        return $project;
+        $project = $this->getMainModel();
+        switch ($model->modelClassName()) {
+            case 'WebBuild':
+                return $model->idproject == $project->primaryColumnValue();
+
+            case 'WebProject':
+                return $model->primaryColumnValue() == $project->primaryColumnValue();
+
+            default:
+                return parent::checkModelSecurity($model);
+        }
+    }
+
+    /**
+     * 
+     * @param string $name
+     */
+    protected function createSectionPublications($name = 'ListPublication')
+    {
+        $this->addListSection($name, 'Publication', 'publications', 'fas fa-newspaper');
+        $this->addOrderOption($name, ['creationdate'], 'date', 2);
+        $this->addSearchOptions($name, ['title', 'body']);
+
+        /// buttons
+        $plugin = $this->getMainModel();
+        if ($this->contactCanEdit()) {
+            $button = [
+                'action' => 'AddPublication?idproject=' . $plugin->idproject,
+                'color' => 'success',
+                'icon' => 'fas fa-plus',
+                'label' => 'new',
+                'type' => 'link'
+            ];
+            $this->addButton($name, $button);
+        }
     }
 
     /**
@@ -98,41 +172,52 @@ class ViewPlugin extends SectionController
      */
     protected function createSections()
     {
-        $this->addSection('plugin', ['fixed' => true, 'template' => 'Section/Plugin']);
-        $this->addListSection('docs', 'WebDocPage', 'Section/Documentation', 'documentation');
-    }
+        $this->fixedSection();
+        $this->addHtmlSection('plugin', 'plugin', 'Section/Plugin');
+        $project = $this->getMainModel();
+        $this->addNavigationLink($project->url('public-list'), $this->i18n->trans('plugins'));
+        $this->addNavigationLink($project->url('public-list') . '?activetab=ListWebProject', '2018');
 
-    /**
-     * Code for edit action.
-     */
-    protected function editAction()
-    {
-        if (!$this->contactCanEdit()) {
-            $this->miniLog->alert($this->i18n->trans('not-allowed-modify'));
-            return;
-        }
+        $this->createSectionPublications();
+        $this->addListSection('ListWebDocPage', 'WebDocPage', 'documentation', 'fas fa-book');
+        $this->sections['ListWebDocPage']->template = 'Section/Documentation.html.twig';
 
-        $this->project->description = $this->request->get('description', '');
-        $this->project->publicrepo = $this->request->get('publicrepo', '');
-        if ($this->project->save()) {
-            $this->miniLog->info($this->i18n->trans('record-updated-correctly'));
-        } else {
-            $this->miniLog->alert($this->i18n->trans('record-save-error'));
+        /// admin
+        if ($this->contactCanEdit()) {
+            $this->addEditSection('EditWebProject', 'WebProject', 'edit', 'fas fa-edit', 'admin');
+            $this->addEditListSection('EditWebBuild', 'WebBuild', 'builds', 'fas fa-file-archive', 'admin');
+            $this->addListSection('ListIssue', 'Issue', 'issues', 'fas fa-question-circle', 'admin');
+            $this->sections['ListIssue']->template = 'Section/Issues.html.twig';
         }
     }
 
-    /**
-     * Runs the controller actions after data read.
-     *
-     * @param string $action
-     */
-    protected function execAfterAction(string $action)
+    protected function deleteAction()
     {
-        switch ($action) {
-            case 'edit':
-                $this->editAction();
-                break;
+        $return = parent::deleteAction();
+        if ($return && $this->active === 'EditWebProject') {
+            /// adds delete plugin message to team log
+            $uri = explode('/', $this->uri);
+            $this->saveTeamLog('Deleted plugin ' . end($uri), '');
+        } elseif ($return && $this->active === 'EditWebBuild') {
+            $this->sections[$this->active]->model->clear();
         }
+
+        return $return;
+    }
+
+    protected function insertAction()
+    {
+        $return = parent::insertAction();
+        if ($return && $this->active === 'EditWebBuild') {
+            /// adds new plugin version message to team log
+            $plugin = $this->getMainModel();
+            $version = $this->request->request->get('version', $plugin->version);
+            $this->saveTeamLog('Uploaded plugin ' . $plugin->name . ' v' . $version, $plugin->url('public'));
+        } elseif (false === $return && $this->active === 'EditWebBuild') {
+            $this->sections[$this->active]->model->clear();
+        }
+
+        return $return;
     }
 
     /**
@@ -142,14 +227,30 @@ class ViewPlugin extends SectionController
      */
     protected function loadData(string $sectionName)
     {
+        $project = $this->getMainModel();
         switch ($sectionName) {
-            case 'docs':
-                $project = $this->getProject();
+            case 'EditWebBuild':
+                $where = [new DataBaseWhere('idproject', $project->idproject)];
+                $this->sections[$sectionName]->loadData('', $where, ['version' => 'DESC']);
+                $this->updatePluginVersion($sectionName);
+                break;
+
+            case 'EditWebProject':
+                $this->sections[$sectionName]->loadData($project->primaryColumnValue());
+                break;
+
+            case 'ListIssue':
+            case 'ListPublication':
+                $where = [new DataBaseWhere('idproject', $project->idproject)];
+                $this->sections[$sectionName]->loadData('', $where);
+                break;
+
+            case 'ListWebDocPage':
                 $where = [
                     new DataBaseWhere('idproject', $project->idproject),
                     new DataBaseWhere('idparent', null, 'IS'),
                 ];
-                $this->loadListSection($sectionName, $where);
+                $this->sections[$sectionName]->loadData('', $where);
                 break;
 
             case 'plugin':
@@ -163,16 +264,74 @@ class ViewPlugin extends SectionController
      */
     protected function loadPlugin()
     {
-        $this->project = $this->getProject();
-        if ($this->project->exists() && $this->project->plugin) {
-            $this->title = 'Plugin ' . $this->project->name;
-            $this->description = $this->project->description();
+        if (!$this->getMainModel(true)->exists() || !$this->getMainModel()->plugin) {
+            $this->miniLog->warning($this->i18n->trans('no-data'));
+            $this->response->setStatusCode(Response::HTTP_NOT_FOUND);
+            $this->webPage->noindex = true;
+            $this->setTemplate('Master/Portal404');
             return;
         }
 
-        $this->miniLog->alert($this->i18n->trans('no-data'));
-        $this->response->setStatusCode(Response::HTTP_NOT_FOUND);
-        $this->webPage->noindex = true;
-        $this->setTemplate('Master/Portal404');
+        if (!$this->contactCanSee()) {
+            $this->miniLog->warning($this->i18n->trans('access-denied'));
+            $this->response->setStatusCode(Response::HTTP_FORBIDDEN);
+            $this->webPage->noindex = true;
+            $this->setTemplate('Master/AccessDenied');
+            return;
+        }
+
+        $this->title = 'Plugin ' . $this->getMainModel()->name;
+        $this->description = $this->getMainModel()->description();
+        $this->canonicalUrl = $this->getMainModel()->url('public');
+
+        $ipAddress = is_null($this->request->getClientIp()) ? '::1' : $this->request->getClientIp();
+        $this->getMainModel()->increaseVisitCount($ipAddress);
+    }
+
+    /**
+     * 
+     * @param string $description
+     * @param string $link
+     *
+     * @return bool
+     */
+    protected function saveTeamLog($description, $link)
+    {
+        $teamLog = new WebTeamLog();
+        $teamLog->description = $description;
+        $teamLog->idcontacto = $this->contact->idcontacto;
+        $teamLog->idteam = AppSettings::get('community', 'idteamdev');
+        $teamLog->link = $link;
+        return $teamLog->save();
+    }
+
+    /**
+     * Updates plugin version with the top build version.
+     *
+     * @param string $sectionName
+     */
+    protected function updatePluginVersion(string $sectionName)
+    {
+        $version = 0;
+        $lastmod = null;
+        $downloads = 0;
+
+        $plugin = $this->getMainModel();
+        foreach ($this->sections[$sectionName]->cursor as $model) {
+            $downloads += $model->downloads;
+            if ($model->version > $version) {
+                $version = $model->version;
+                $lastmod = $model->date;
+            }
+        }
+
+        if ($version != $plugin->version || $downloads != $plugin->downloads) {
+            $plugin->downloads = max([$downloads, $plugin->downloads]);
+            $plugin->version = $version;
+            $plugin->lastmod = $lastmod;
+            $plugin->save();
+        }
+
+        $this->sections['EditWebBuild']->model->version = $version + 0.1;
     }
 }

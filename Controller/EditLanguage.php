@@ -23,16 +23,16 @@ use FacturaScripts\Core\Base\DataBase\DataBaseWhere;
 use FacturaScripts\Core\Base\Utils;
 use FacturaScripts\Plugins\Community\Model\Language;
 use FacturaScripts\Plugins\Community\Model\Translation;
-use FacturaScripts\Plugins\Community\Model\WebTeamMember;
-use FacturaScripts\Plugins\webportal\Lib\WebPortal\SectionController;
+use FacturaScripts\Plugins\webportal\Lib\WebPortal\EditSectionController;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Class to manage an existing language.
  *
- * @author Carlos García Gómez <carlos@facturascripts.com>
- * @author Francesc Pineda Segarra <francesc.pineda@x-netdigital.com>
+ * @author Carlos García Gómez      <carlos@facturascripts.com>
+ * @author Francesc Pineda Segarra  <francesc.pineda@x-netdigital.com>
  */
-class EditLanguage extends SectionController
+class EditLanguage extends EditSectionController
 {
 
     /**
@@ -54,36 +54,52 @@ class EditLanguage extends SectionController
      *
      * @return bool
      */
-    public function contactCanEdit(): bool
+    public function contactCanEdit()
     {
         if ($this->user) {
             return true;
         }
 
-        return false;
+        if (empty($this->contact)) {
+            return false;
+        }
+
+        $language = $this->getMainModel();
+        return ($language->idcontacto === $this->contact->idcontacto);
+    }
+
+    /**
+     * 
+     * @return bool
+     */
+    public function contactCanSee()
+    {
+        return true;
     }
 
     /**
      * Returns the language loaded by code.
+     * 
+     * @param bool $reload
      *
      * @return Language
      */
-    public function getLanguageModel(): Language
+    public function getMainModel($reload = false)
     {
-        if (isset($this->languageModel)) {
+        if (isset($this->languageModel) && !$reload) {
             return $this->languageModel;
         }
 
-        $language = new Language();
-        $code = $this->request->get('code', '');
+        $this->languageModel = new Language();
+        $code = $this->request->query->get('code', '');
         if (!empty($code)) {
-            $language->loadFromCode($code);
-            return $language;
+            $this->languageModel->loadFromCode($code);
+            return $this->languageModel;
         }
 
         $uri = explode('/', $this->uri);
-        $language->loadFromCode(end($uri));
-        return $language;
+        $this->languageModel->loadFromCode(end($uri));
+        return $this->languageModel;
     }
 
     /**
@@ -93,7 +109,7 @@ class EditLanguage extends SectionController
      */
     public function getParentLanguages(): array
     {
-        $current = $this->getLanguageModel();
+        $current = $this->getMainModel();
         $languages = [];
         foreach ($current->all([], ['langcode' => 'ASC'], 0, 0) as $language) {
             if ($language->langcode == $current->langcode) {
@@ -108,28 +124,6 @@ class EditLanguage extends SectionController
         }
 
         return $languages;
-    }
-
-    /**
-     * Returns a list of team members for this language.
-     *
-     * @return array
-     */
-    public function getTeamMembers(): array
-    {
-        $idteamtra = AppSettings::get('community', 'idteamtra');
-        $memberModel = new WebTeamMember();
-        $where = [
-            new DataBaseWhere('idteam', $idteamtra),
-            new DataBaseWhere('accepted', true),
-        ];
-
-        $values = [];
-        foreach ($memberModel->all($where, [], 0, 0) as $member) {
-            $values[] = $member->getContact();
-        }
-
-        return $values;
     }
 
     /**
@@ -164,60 +158,56 @@ class EditLanguage extends SectionController
      */
     protected function createSections()
     {
-        $this->addSection('language', ['fixed' => true, 'template' => 'Section/Language']);
+        $this->fixedSection();
 
-        $this->addListSection('translations', 'Translation', 'Section/Translations', 'translations', 'fa-copy');
-        $this->addSearchOptions('translations', ['name', 'description', 'translation']);
-        $this->addOrderOption('translations', 'name', 'code', 1);
-        $this->addOrderOption('translations', 'lastmod', 'last-update');
+        $this->addHtmlSection('language', 'language', 'Section/Language');
+        $language = $this->getMainModel();
+        $this->addNavigationLink($language->url('public-list') . '?activetab=ListLanguage', $this->i18n->trans('languages'));
 
-        if ($this->user) {
-            $language = $this->getLanguageModel();
-            $this->addButton('translations', $language->url() . '&action=import-trans', 'import', '');
-        }
-        $this->addButton('translations', 'AddTranslation', 'new', '');
+        $this->createSectionTranslations();
+        $this->createSectionRevisions();
 
-        $this->addListSection('revisions', 'Translation', 'Section/Translations', 'needs-revisions', 'fa-eye');
-        $this->addSearchOptions('revisions', ['name', 'description', 'translation']);
-        $this->addOrderOption('revisions', 'name', 'code', 1);
-        $this->addOrderOption('revisions', 'lastmod', 'last-update');
-    }
-
-    /**
-     * Code for delete action.
-     */
-    protected function deleteAction()
-    {
-        if (!$this->contactCanEdit()) {
-            $this->miniLog->alert($this->i18n->trans('not-allowed-delete'));
-            return;
-        }
-
-        $language = $this->getLanguageModel();
-        if ($language->delete()) {
-            $this->miniLog->info($this->i18n->trans('record-deleted-correctly'));
+        /// admin
+        if ($this->contactCanEdit()) {
+            $this->addEditSection('EditLanguage', 'Language', 'edit', 'fas fa-edit', 'admin');
         }
     }
 
-    /**
-     * Code for edit action.
-     */
-    protected function editAction()
+    protected function createSectionRevisions($name = 'ListTranslation-rev')
     {
-        if (!$this->contactCanEdit()) {
-            $this->miniLog->alert($this->i18n->trans('not-allowed-modify'));
-            return;
-        }
+        $this->addListSection($name, 'Translation', 'needs-revisions', 'fas fa-eye');
+        $this->sections[$name]->template = 'Section/Translations.html.twig';
+        $this->addSearchOptions($name, ['name', 'description', 'translation']);
+        $this->addOrderOption($name, ['name'], 'code', 1);
+        $this->addOrderOption($name, ['lastmod'], 'last-update');
+    }
 
-        $language = $this->getLanguageModel();
-        $language->description = $this->request->request->get('description', '');
-        $language->idcontacto = ('' === $this->request->request->get('idcontacto', '')) ? null : $this->request->request->get('idcontacto', '');
-        $language->parentcode = ('' === $this->request->request->get('parentcode', '')) ? null : $this->request->request->get('parentcode', '');
+    protected function createSectionTranslations($name = 'ListTranslation')
+    {
+        $this->addListSection($name, 'Translation', 'translations', 'fas fa-copy');
+        $this->sections[$name]->template = 'Section/Translations.html.twig';
+        $this->addSearchOptions($name, ['name', 'description', 'translation']);
+        $this->addOrderOption($name, ['name'], 'code', 1);
+        $this->addOrderOption($name, ['lastmod'], 'last-update');
 
-        if ($language->save()) {
-            $this->miniLog->info($this->i18n->trans('record-updated-correctly'));
-        } else {
-            $this->miniLog->alert($this->i18n->trans('record-save-error'));
+        /// buttons
+        $button = [
+            'action' => 'AddTranslation',
+            'color' => 'success',
+            'icon' => 'fas fa-plus',
+            'label' => 'new',
+            'type' => 'link',
+        ];
+        $this->addButton($name, $button);
+
+        if ($this->contactCanEdit()) {
+            $language = $this->getMainModel();
+            $button = [
+                'action' => $language->url() . '&action=import-trans',
+                'label' => 'import',
+                'type' => 'link',
+            ];
+            $this->addButton($name, $button);
         }
     }
 
@@ -231,14 +221,6 @@ class EditLanguage extends SectionController
     protected function execPreviousAction(string $action)
     {
         switch ($action) {
-            case 'delete':
-                $this->deleteAction();
-                return true;
-
-            case 'edit':
-                $this->editAction();
-                return true;
-
             case 'import-trans':
                 $this->importTranslationsAction();
                 return true;
@@ -259,10 +241,11 @@ class EditLanguage extends SectionController
     {
         if (!$this->user) {
             $this->miniLog->alert($this->i18n->trans('not-allowed-modify'));
+            $this->response->setStatusCode(Response::HTTP_UNAUTHORIZED);
             return;
         }
 
-        $language = $this->getLanguageModel();
+        $language = $this->getMainModel();
         if ($language->parentcode) {
             $this->miniLog->alert("You can't import a language with parent.");
             return;
@@ -340,15 +323,21 @@ class EditLanguage extends SectionController
     protected function jsonExport()
     {
         $this->setTemplate(false);
-
         $json = [];
-        $language = $this->getLanguageModel();
+        $language = $this->getMainModel();
         $translation = new Translation();
+
+        if (!empty($language->parentcode)) {
+            $where = [new DataBaseWhere('langcode', $language->parentcode)];
+            foreach ($translation->all($where, ['name' => 'ASC'], 0, 0) as $transParent) {
+                $json[$transParent->name] = Utils::fixHtml($transParent->translation);
+            }
+        }
+
         $where = [new DataBaseWhere('langcode', $language->langcode)];
         foreach ($translation->all($where, ['name' => 'ASC'], 0, 0) as $trans) {
             $json[$trans->name] = Utils::fixHtml($trans->translation);
         }
-
         $this->response->headers->set('Content-Type', 'application/json');
         $this->response->setContent(json_encode($json, JSON_UNESCAPED_UNICODE | JSON_PRETTY_PRINT));
     }
@@ -360,21 +349,42 @@ class EditLanguage extends SectionController
      */
     protected function loadData(string $sectionName)
     {
+        $language = $this->getMainModel();
         switch ($sectionName) {
-            case 'revisions':
-                $language = $this->getLanguageModel();
+            case 'EditLanguage':
+                $this->sections[$sectionName]->loadData($language->primaryColumnValue());
+                break;
+
+            case 'language':
+                $this->loadLanguage();
+                break;
+
+            case 'ListTranslation-rev':
                 $where = [
                     new DataBaseWhere('langcode', $language->langcode),
                     new DataBaseWhere('needsrevision', true)
                 ];
-                $this->loadListSection($sectionName, $where);
+                $this->sections[$sectionName]->loadData('', $where);
                 break;
 
-            case 'translations':
-                $language = $this->getLanguageModel();
+            case 'ListTranslation':
                 $where = [new DataBaseWhere('langcode', $language->langcode)];
-                $this->loadListSection($sectionName, $where);
+                $this->sections[$sectionName]->loadData('', $where);
                 break;
         }
+    }
+
+    protected function loadLanguage()
+    {
+        if (!$this->getMainModel(true)->exists()) {
+            $this->miniLog->warning($this->i18n->trans('no-data'));
+            $this->response->setStatusCode(Response::HTTP_NOT_FOUND);
+            $this->webPage->noindex = true;
+            $this->setTemplate('Master/Portal404');
+            return;
+        }
+
+        $this->title = $this->languageModel->langcode;
+        $this->description = $this->languageModel->description;
     }
 }

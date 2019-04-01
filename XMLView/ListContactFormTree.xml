@@ -36,10 +36,10 @@
             <widget type="text" fieldname="langcode" />
         </column>
         <column name="sort" display="right" order="140">
-            <widget type="number" fieldname="ordernum" />
+            <widget type="number" fieldname="ordernum" decimal="0" />
         </column>
         <column name="visitcount" title="visit-counter" display="right" order="150">
-            <widget type="number" fieldname="visitcount" />
+            <widget type="number" fieldname="visitcount" decimal="0" />
         </column>
         <column name="lastmod" title="last-update" display="right" order="160">
             <widget type="date" fieldname="lastmod" />

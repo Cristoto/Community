@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -18,18 +18,15 @@
  */
 namespace FacturaScripts\Plugins\Community\Controller;
 
-require_once __DIR__ . '/../vendor/autoload.php';
-
 use FacturaScripts\Core\App\AppSettings;
 use FacturaScripts\Core\Base\ControllerPermissions;
 use FacturaScripts\Core\Base\DataBase\DataBaseWhere;
-use FacturaScripts\Core\Base\Utils;
+use FacturaScripts\Dinamic\Model\CodeModel;
 use FacturaScripts\Dinamic\Model\User;
 use FacturaScripts\Plugins\Community\Model\WebDocPage;
 use FacturaScripts\Plugins\Community\Model\WebProject;
 use FacturaScripts\Plugins\webportal\Lib\WebPortal\PortalController;
 use FacturaScripts\Plugins\webportal\Model\WebPage;
-use Parsedown;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
@@ -106,23 +103,7 @@ class WebDocumentation extends PortalController
     }
 
     /**
-     * Parse the MarkDown code.
-     *
-     * @param string $txt
-     *
-     * @return string
-     */
-    public function parsedown(string $txt): string
-    {
-        $parser = new Parsedown();
-        $html = $parser->text(Utils::fixHtml($txt));
-
-        /// some html fixes
-        return str_replace(['<p>', '<pre>', '<img '], ['<p class="text-justify">', '<pre class="code">', '<img class="img-responsive" '], $html);
-    }
-
-    /**
-     * * Runs the controller's private logic.
+     * Runs the controller's private logic.
      *
      * @param Response              $response
      * @param User                  $user
@@ -249,24 +230,24 @@ class WebDocumentation extends PortalController
         /// current project
         $this->currentProject = new WebProject();
         if (!$this->currentProject->loadFromCode($idproject)) {
-            $this->miniLog->alert($this->i18n->trans('no-data'));
+            $this->miniLog->warning($this->i18n->trans('no-data'));
             $this->response->setStatusCode(Response::HTTP_NOT_FOUND);
         }
 
         /// all projects
-        $this->projects = $this->currentProject->all([], ['name' => 'ASC'], 0, 0);
+        $this->loadProjects();
 
         $this->docPage = new WebDocPage();
 
         /// doc page permalink?
-        if (null === $docPermalink) {
+        if (empty($docPermalink)) {
             /// project doc pages
             $this->loadProject();
         } elseif ($this->docPage->loadFromCode('', [new DataBaseWhere('permalink', $docPermalink)])) {
             /// individual doc page
             $this->loadPage();
         } else {
-            $this->miniLog->alert($this->i18n->trans('no-data'));
+            $this->miniLog->warning($this->i18n->trans('no-data'));
             $this->response->setStatusCode(Response::HTTP_NOT_FOUND);
             $this->webPage->noindex = true;
             $this->setTemplate('Master/Portal404');
@@ -285,6 +266,7 @@ class WebDocumentation extends PortalController
 
         $this->title = $this->docPage->title;
         $this->description = $this->docPage->description(300);
+        $this->canonicalUrl = $this->docPage->url('public');
         $this->setTemplate('WebDocPage');
     }
 
@@ -295,6 +277,7 @@ class WebDocumentation extends PortalController
     {
         $this->title .= ' - ' . $this->currentProject->name;
         $this->description .= ' - Project: ' . $this->currentProject->name;
+        $this->canonicalUrl = '/' . $this->getProjectUrl($this->currentProject);
 
         $where = [
             new DataBaseWhere('idparent', null, 'IS'),
@@ -302,5 +285,27 @@ class WebDocumentation extends PortalController
             new DataBaseWhere('langcode', $this->webPage->langcode)
         ];
         $this->docPages = $this->docPage->all($where, ['ordernum' => 'ASC'], 0, 0);
+    }
+
+    protected function loadProjects()
+    {
+        $codeModel = new CodeModel();
+        foreach ($codeModel->all('webdocpages', 'idproject', 'idproject', false) as $item) {
+            $project = new WebProject();
+            if ($project->loadFromCode($item->code) && !$project->plugin) {
+                $this->projects[] = $project;
+            }
+        }
+
+        /// sort by name
+        uasort($this->projects, function ($item1, $item2) {
+            if ($item1->name < $item2->name) {
+                return -1;
+            } elseif ($item1->name > $item2->name) {
+                return 1;
+            }
+
+            return 0;
+        });
     }
 }

@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -91,6 +91,12 @@ class Issue extends WebPageClass
 
     /**
      *
+     * @var int
+     */
+    public $priority;
+
+    /**
+     *
      * @var array
      */
     private static $urls = [];
@@ -102,6 +108,7 @@ class Issue extends WebPageClass
     {
         parent::clear();
         $this->closed = false;
+        $this->priority = 0;
     }
 
     /**
@@ -117,6 +124,17 @@ class Issue extends WebPageClass
     }
 
     /**
+     * 
+     * @return IssueComment[]
+     */
+    public function getComments()
+    {
+        $issueComment = new IssueComment();
+        $where = [new DataBaseWhere('idissue', $this->idissue)];
+        return $issueComment->all($where, ['creationdate' => 'ASC'], 0, 0);
+    }
+
+    /**
      * Returns contact model from last comment.
      *
      * @return Contacto
@@ -126,6 +144,39 @@ class Issue extends WebPageClass
         $contact = new Contacto();
         $contact->loadFromCode($this->lastcommidcontacto);
         return $contact;
+    }
+
+    /**
+     * 
+     * @return WebProject
+     */
+    public function getProject()
+    {
+        $project = new WebProject();
+        $project->loadFromCode($this->idproject);
+        return $project;
+    }
+
+    /**
+     * 
+     * @return WebTeam
+     */
+    public function getTeam()
+    {
+        $team = new WebTeam();
+        $team->loadFromCode($this->idteam);
+        return $team;
+    }
+
+    /**
+     * 
+     * @return string
+     */
+    public function html()
+    {
+        $url = '~(?:(https?)://([^\s<]+)|(www\.[^\s<]+?\.[^\s<]+))(?<![\.,:])~i';
+        $html = preg_replace($url, '<a href="$0" target="_blank" title="$0">$0</a>', $this->body);
+        return nl2br($html);
     }
 
     /**
@@ -156,6 +207,7 @@ class Issue extends WebPageClass
     public function test()
     {
         $this->body = Utils::noHtml($this->body);
+
         return parent::test();
     }
 
@@ -206,6 +258,6 @@ class Issue extends WebPageClass
             return self::$urls[$type];
         }
 
-        return '#';
+        return $controller . '?code=';
     }
 }

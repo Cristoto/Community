@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -20,20 +20,22 @@ namespace FacturaScripts\Plugins\Community\Controller;
 
 use FacturaScripts\Core\App\AppSettings;
 use FacturaScripts\Core\Base\DataBase\DataBaseWhere;
+use FacturaScripts\Plugins\Community\Lib;
 use FacturaScripts\Plugins\Community\Model\Language;
 use FacturaScripts\Plugins\Community\Model\Translation;
-use FacturaScripts\Plugins\Community\Model\WebTeamLog;
-use FacturaScripts\Plugins\Community\Model\WebTeamMember;
-use FacturaScripts\Plugins\webportal\Lib\WebPortal\SectionController;
+use FacturaScripts\Plugins\webportal\Lib\WebPortal\EditSectionController;
+use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Class to manage an existing translation.
  *
- * @author Carlos García Gómez <carlos@facturascripts.com>
- * @author Francesc Pineda Segarra <francesc.pineda@x-netdigital.com>
+ * @author Carlos García Gómez      <carlos@facturascripts.com>
+ * @author Francesc Pineda Segarra  <francesc.pineda@x-netdigital.com>
  */
-class EditTranslation extends SectionController
+class EditTranslation extends EditSectionController
 {
+
+    use Lib\WebTeamMethodsTrait;
 
     /**
      * This translation.
@@ -47,56 +49,68 @@ class EditTranslation extends SectionController
      *
      * @return bool
      */
-    public function contactCanEdit(): bool
+    public function contactCanEdit()
     {
         if ($this->user) {
             return true;
         }
 
-        if (null === $this->contact) {
+        if (empty($this->contact)) {
             return false;
         }
 
         // Contact is member of translation team?
-        $idteamtra = AppSettings::get('community', 'idteamtra');
-        $member = new WebTeamMember();
-        $where = [
-            new DataBaseWhere('idcontacto', $this->contact->idcontacto),
-            new DataBaseWhere('idteam', $idteamtra),
-            new DataBaseWhere('accepted', true)
-        ];
-        if (!$member->loadFromCode('', $where)) {
+        $idteam = AppSettings::get('community', 'idteamtra');
+        if (!$this->contactInTeam($idteam)) {
             return false;
         }
 
         // This language has a mantainer?
-        $translation = $this->getTranslationModel();
-        $language = new Language();
-        $language->loadFromCode($translation->langcode);
+        $language = $this->getLanguageModel();
         return !($language->idcontacto && $language->idcontacto !== $this->contact->idcontacto);
     }
 
     /**
+     * 
+     * @return bool
+     */
+    public function contactCanSee()
+    {
+        return true;
+    }
+
+    /**
+     * 
+     * @return Language
+     */
+    public function getLanguageModel(): Language
+    {
+        return $this->getMainModel()->getLanguage();
+    }
+
+    /**
      * Returns the translation loaded by code.
+     * 
+     * @param bool $reload
      *
      * @return Translation
      */
-    public function getTranslationModel(): Translation
+    public function getMainModel($reload = false)
     {
-        if (isset($this->translationModel)) {
+        if (isset($this->translationModel) && !$reload) {
             return $this->translationModel;
         }
 
-        $translation = new Translation();
-        $code = $this->request->get('code', '');
+        $this->translationModel = new Translation();
+        $code = $this->request->query->get('code', '');
         if (!empty($code)) {
-            $translation->loadFromCode($code);
-            return $translation;
+            $this->translationModel->loadFromCode($code);
+            return $this->translationModel;
         }
 
         $uri = explode('/', $this->uri);
-        $translation->loadFromCode(end($uri));
-        return $translation;
+        $this->translationModel->loadFromCode(end($uri));
+        return $this->translationModel;
     }
 
     /**
@@ -123,21 +137,45 @@ class EditTranslation extends SectionController
     }
 
     /**
+     * 
+     * @param string $name
+     */
+    protected function createLogSection($name = 'ListWebTeamLog')
+    {
+        $this->addListSection($name, 'WebTeamLog', 'log', 'fas fa-file-medical-alt');
+        $this->sections[$name]->template = 'Section/TeamLogs.html.twig';
+        $this->addOrderOption($name, ['time'], 'date', 2);
+    }
+
+    /**
      * Load sections to the view.
      */
     protected function createSections()
     {
-        $this->addSection('translation', ['fixed' => true, 'template' => 'Section/Translation']);
+        $this->fixedSection();
+        $this->addHtmlSection('translation', 'translation', 'Section/Translation');
+        $language = $this->getLanguageModel();
+        $this->addNavigationLink($language->url('public-list') . '?activetab=ListTranslation', $this->i18n->trans('translations'));
+        $this->addNavigationLink($language->url('public'), $language->description);
 
-        $this->addListSection('translations', 'Translation', 'Section/Translations', 'translations', 'fa-copy');
-        $this->addSearchOptions('translations', ['name', 'description', 'translation']);
-        $this->addOrderOption('translations', 'name', 'code', 1);
-        $this->addOrderOption('translations', 'lastmod', 'last-update');
+        $this->createTranslationSection('ListTranslation', 'translations', 'fas fa-copy');
+        $this->createTranslationSection('ListTranslation-rev', 'needs-revisions', 'fas fa-eye');
+        $this->createLogSection();
+    }
 
-        $this->addListSection('revisions', 'Translation', 'Section/Translations', 'needs-revisions', 'fa-eye');
-        $this->addSearchOptions('revisions', ['name', 'description', 'translation']);
-        $this->addOrderOption('revisions', 'name', 'code', 1);
-        $this->addOrderOption('revisions', 'lastmod', 'last-update');
+    /**
+     * 
+     * @param string $name
+     * @param string $label
+     * @param string $icon
+     */
+    protected function createTranslationSection($name, $label, $icon)
+    {
+        $this->addListSection($name, 'Translation', $label, $icon);
+        $this->sections[$name]->template = 'Section/Translations.html.twig';
+        $this->addSearchOptions($name, ['name', 'description', 'translation']);
+        $this->addOrderOption($name, ['name'], 'code', 1);
+        $this->addOrderOption($name, ['lastmod'], 'last-update');
     }
 
     /**
@@ -147,18 +185,20 @@ class EditTranslation extends SectionController
     {
         if (!$this->contactCanEdit()) {
             $this->miniLog->alert($this->i18n->trans('not-allowed-delete'));
+            $this->response->setStatusCode(Response::HTTP_UNAUTHORIZED);
             return;
         }
 
-        $translation = $this->getTranslationModel();
+        $translation = $this->getMainModel();
         foreach ($translation->getEquivalents() as $trans) {
             $trans->delete();
-            $this->saveTeamLog($trans, 'Deleted');
         }
 
         if ($translation->delete()) {
             $this->miniLog->info($this->i18n->trans('record-deleted-correctly'));
-            $this->saveTeamLog($translation, 'Deleted');
+            $idteam = AppSettings::get('community', 'idteamtra');
+            $description = 'Deleted translation: ' . $translation->langcode . ' / ' . $translation->name;
+            $this->saveTeamLog($idteam, $description);
         }
     }
 
@@ -168,16 +208,18 @@ class EditTranslation extends SectionController
     protected function editAction()
     {
         if (!$this->contactCanEdit()) {
-            $this->miniLog->alert($this->i18n->trans('not-allowed-modify'));
+            $idteam = AppSettings::get('community', 'idteamtra');
+            $this->contactNotInTeamError($idteam);
             return;
         }
 
-        $translation = $this->getTranslationModel();
+        $translation = $this->getMainModel();
         $translation->description = $this->request->request->get('description', '');
         $translation->translation = $this->request->request->get('translation', '');
         $translation->lastmod = date('d-m-Y H:i:s');
         $translation->needsrevision = false;
 
+        /// rename?
         $oldTransName = $translation->name;
         if ($this->request->request->get('name', '') !== '') {
             $translation->name = $this->request->request->get('name', '');
@@ -187,6 +229,7 @@ class EditTranslation extends SectionController
             $this->miniLog->alert($this->i18n->trans('record-save-error'));
         }
 
+        /// rename
         if ($oldTransName != $translation->name) {
             foreach ($translation->getEquivalents($oldTransName) as $trans) {
                 $trans->name = $translation->name;
@@ -194,8 +237,27 @@ class EditTranslation extends SectionController
             }
         }
 
+        /// update children
+        foreach ($translation->getChildren() as $trans) {
+            if ($trans->needsrevision) {
+                $trans->description = $translation->description;
+                $trans->translation = $translation->translation;
+                $trans->needsrevision = false;
+                $trans->save();
+            }
+        }
+
         $this->miniLog->info($this->i18n->trans('record-updated-correctly'));
-        $this->saveTeamLog($translation);
+        $idteam = AppSettings::get('community', 'idteamtra');
+        $description = 'Updated translation: ' . $translation->langcode . ' / ' . $translation->name;
+        $link = $translation->url('public');
+
+        /// we only save one log per day
+        $logs = $this->searchTeamLog($idteam, $this->contact->idcontacto, $link);
+        if (empty($logs) || time() - strtotime($logs[0]->time) > 86400) {
+            $this->saveTeamLog($idteam, $description, $link);
+        }
+
         $this->checkRevisions($translation);
         $this->updateLanguageStats($translation->langcode);
     }
@@ -230,47 +292,48 @@ class EditTranslation extends SectionController
      */
     protected function loadData(string $sectionName)
     {
+        $translation = $this->getMainModel();
         switch ($sectionName) {
-            case 'revisions':
-                $translation = $this->getTranslationModel();
+            case 'ListWebTeamLog':
+                $where = [new DataBaseWhere('link', $translation->url('public'))];
+                $this->sections[$sectionName]->loadData('', $where);
+                break;
+
+            case 'ListTranslation-rev':
                 $where = [
                     new DataBaseWhere('langcode', $translation->langcode),
                     new DataBaseWhere('needsrevision', true),
                     new DataBaseWhere('id', $translation->id, '!=')
                 ];
-                $this->loadListSection($sectionName, $where);
+                $this->sections[$sectionName]->loadData('', $where);
                 break;
 
-            case 'translations':
-                $translation = $this->getTranslationModel();
+            case 'ListTranslation':
                 $where = [
                     new DataBaseWhere('name', $translation->name),
                     new DataBaseWhere('id', $translation->id, '!=')
                 ];
-                $this->loadListSection($sectionName, $where);
+                $this->sections[$sectionName]->loadData('', $where);
+                break;
+
+            case 'translation':
+                $this->loadTranslation();
                 break;
         }
     }
 
-    /**
-     * Store a log detail for the translation.
-     *
-     * @param Translation $translation
-     * @param string      $action
-     */
-    private function saveTeamLog(Translation $translation, $action = 'Updated')
+    protected function loadTranslation()
     {
-        $idteamtra = AppSettings::get('community', 'idteamtra', '');
-        if (empty($idteamtra)) {
+        if (!$this->getMainModel(true)->exists()) {
+            $this->miniLog->warning($this->i18n->trans('no-data'));
+            $this->response->setStatusCode(Response::HTTP_NOT_FOUND);
+            $this->webPage->noindex = true;
+            $this->setTemplate('Master/Portal404');
             return;
         }
 
-        $teamLog = new WebTeamLog();
-        $teamLog->description = $action . ' translation: ' . $translation->langcode . ' / ' . $translation->name;
-        $teamLog->idteam = $idteamtra;
-        $teamLog->idcontacto = is_null($this->contact) ? null : $this->contact->idcontacto;
-        $teamLog->link = $translation->url('public');
-        $teamLog->save();
+        $this->title = $this->translationModel->name;
+        $this->description = $this->translationModel->description;
     }
 
     /**

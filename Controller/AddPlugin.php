@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -19,46 +19,65 @@
 namespace FacturaScripts\Plugins\Community\Controller;
 
 use FacturaScripts\Core\App\AppSettings;
-use FacturaScripts\Core\Base\ControllerPermissions;
 use FacturaScripts\Core\Base\DataBase\DataBaseWhere;
-use FacturaScripts\Dinamic\Model\User;
+use FacturaScripts\Dinamic\Model\CodeModel;
 use FacturaScripts\Plugins\Community\Model\WebProject;
 use FacturaScripts\Plugins\Community\Model\WebTeam;
-use FacturaScripts\Plugins\Community\Model\WebTeamLog;
 use FacturaScripts\Plugins\Community\Model\WebTeamMember;
-use FacturaScripts\Plugins\webportal\Lib\WebPortal\PortalController;
-use Symfony\Component\HttpFoundation\Response;
+use FacturaScripts\Plugins\Community\Lib\WebPortal\PortalControllerWizard;
 
 /**
  * This class allow us to manage new plugins.
  *
  * @author Carlos García Gómez <carlos@facturascripts.com>
  */
-class AddPlugin extends PortalController
+class AddPlugin extends PortalControllerWizard
 {
 
     /**
-     * * Runs the controller's private logic.
      *
-     * @param Response              $response
-     * @param User                  $user
-     * @param ControllerPermissions $permissions
+     * @var string
      */
-    public function privateCore(&$response, $user, $permissions)
+    public $version = '2018';
+
+    /**
+     * 
+     * @return array
+     */
+    public function coreVersions()
     {
-        parent::privateCore($response, $user, $permissions);
-        $this->commonCore();
+        return ['2018'];
     }
 
     /**
-     * Execute the public part of the controller.
-     *
-     * @param Response $response
+     * 
+     * @return array
      */
-    public function publicCore(&$response)
+    public function getPageData()
     {
-        parent::publicCore($response);
-        $this->commonCore();
+        $data = parent::getPageData();
+        $data['title'] = 'new-plugin';
+
+        return $data;
+    }
+
+    /**
+     * 
+     * @return CodeModel[]
+     */
+    public function licenses()
+    {
+        $codeModel = new CodeModel();
+        return $codeModel->all('licenses', 'name', 'title', false);
+    }
+
+    /**
+     * 
+     * @return array
+     */
+    public function types()
+    {
+        return ['public', 'private'];
     }
 
     /**
@@ -66,49 +85,65 @@ class AddPlugin extends PortalController
      */
     protected function commonCore()
     {
-        if (empty($this->contact) && !$this->user) {
-            $this->setTemplate('Master/LoginToContinue');
-            return;
-        }
+        $this->setTemplate('AddPlugin');
 
         $name = $this->request->get('name', '');
-        if ('' !== $name && $this->newPlugin($name)) {
-            return;
+        if (!empty($name)) {
+            $this->newPlugin($name);
         }
-
-        $this->setTemplate('AddPlugin');
     }
 
     /**
-     * Return true if contact can add new plugins.
-     * If is a user, or is a accepted team member contact, can add new plugins, otherwise can't.
-     *
-     *
-     * @return bool
+     * 
+     * @return string
      */
-    protected function contactCanAdd(): bool
+    protected function getPluginType()
     {
-        if ($this->user) {
-            return true;
-        }
+        switch ($this->request->request->get('type')) {
+            case 'private':
+                return 'private';
 
-        if (null === $this->contact) {
-            return false;
+            default:
+                return 'public';
         }
+    }
 
-        $idteamdev = AppSettings::get('community', 'idteamdev', '');
-        if (empty($idteamdev)) {
-            return false;
-        }
-
-        $member = new WebTeamMember();
+    /**
+     * 
+     * @return WebTeam
+     */
+    protected function getPrivateTeam()
+    {
+        /// contact owns a private team?
+        $teamModel = new WebTeam();
         $where = [
+            new DataBaseWhere('private', true),
+            new DataBaseWhere('idcontacto', $this->contact->idcontacto)
+        ];
+        foreach ($teamModel->all($where, [], 0, 0) as $team) {
+            return $team;
+        }
+
+        /// contact is in private team?
+        $teamMemberModel = new WebTeamMember();
+        $where2 = [
             new DataBaseWhere('idcontacto', $this->contact->idcontacto),
-            new DataBaseWhere('idteam', $idteamdev),
             new DataBaseWhere('accepted', true)
         ];
+        foreach ($teamMemberModel->all($where2, [], 0, 0) as $member) {
+            if ($teamModel->loadFromCode($member->idteam) && $teamModel->private) {
+                return $teamModel;
+            }
+        }
 
-        return $member->loadFromCode('', $where);
+        /// create a new team
+        $newTeam = new WebTeam();
+        $newTeam->description = $this->contact->alias();
+        $newTeam->idcontacto = $this->contact->idcontacto;
+        $newTeam->name = $this->contact->alias();
+        $newTeam->private = true;
+        $newTeam->save();
+        return $newTeam;
     }
 
     /**
@@ -120,48 +155,40 @@ class AddPlugin extends PortalController
      */
     protected function newPlugin(string $name): bool
     {
-        if (!$this->contactCanAdd()) {
-            $idteamdev = AppSettings::get('community', 'idteamdev', '');
-            $team = new WebTeam();
-            $team->loadFromCode($idteamdev);
-            $this->miniLog->error($this->i18n->trans('join-team', ['%team%' => $team->name]));
+        /// contact is in dev team?
+        $idteamdev = AppSettings::get('community', 'idteamdev', '');
+        if (!$this->contactInTeam($idteamdev)) {
+            $this->contactNotInTeamError($idteamdev);
             return false;
         }
 
+        /// plugin exist?
         $project = new WebProject();
-        if ($project->loadFromCode($name)) {
+        $where = [new DataBaseWhere('name', $name)];
+        if ($project->loadFromCode('', $where)) {
+            $this->miniLog->error($this->i18n->trans('duplicate-record'));
             return false;
         }
 
+        /// save new plugin
         $project->name = $name;
-        $project->description = $name;
-        $project->idcontacto = empty($this->contact) ? null : $this->contact->idcontacto;
+        $project->description = $this->request->request->get('description', $name);
+        $project->idcontacto = $this->contact->idcontacto;
+        $project->idteam = $this->getPrivateTeam()->idteam;
+        $project->license = $this->request->request->get('license');
+        $project->publicrepo = $this->request->request->get('git');
+        $project->type = $this->getPluginType();
         if ($project->save()) {
-            $this->saveTeamLog($project);
-            $this->response->headers->set('Refresh', '0; ' . $project->url('public'));
+            $description = $this->i18n->trans('new-plugin', ['%pluginName%' => $name]);
+            $link = $project->url('public');
+            $this->saveTeamLog($idteamdev, $description, $link);
+
+            /// redir to new plugin
+            $this->response->headers->set('Refresh', '0; ' . $link);
             return true;
         }
 
+        $this->miniLog->alert($this->i18n->trans('record-save-error'));
         return false;
-    }
-
-    /**
-     * Store a log detail for the plugin.
-     *
-     * @param WebProject $plugin
-     */
-    protected function saveTeamLog(WebProject $plugin)
-    {
-        $idteamdev = AppSettings::get('community', 'idteamdev', '');
-        if (empty($idteamdev)) {
-            return;
-        }
-
-        $teamLog = new WebTeamLog();
-        $teamLog->description = $this->i18n->trans('new-plugin', ['%pluginName%' => $plugin->name]);
-        $teamLog->idcontacto = $plugin->idcontacto;
-        $teamLog->idteam = $idteamdev;
-        $teamLog->link = $plugin->url('public');
-        $teamLog->save();
     }
 }

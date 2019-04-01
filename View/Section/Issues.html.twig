@@ -1,35 +1,51 @@
-<table class="table table-hover">
-    <thead>
-        <tr>
-            <th>{{ i18n.trans('title') }}</th>
-            <th class="text-right">{{ i18n.trans('date') }}</th>
-        </tr>
-    </thead>
-    <tbody>
-        {% set section = fsc.getCurrentSection() %}
-        {% for issue in section.cursor %}
-            <tr>
-                <td>
-                    #{{ issue.idissue }}
-                    <a href="{{ issue.url('public') }}">{{ issue.description() | raw }}</a>
-                    <br/>
-                    {% if issue.closed %}
-                        <span class="label label-error">{{ i18n.trans('closed') }}</span>&nbsp;
-                    {% endif %}
-                    <small>
-                        {% if issue.lastcommidcontacto %}
-                            <i class="fa fa-comments-o" aria-hidden="true"></i> {{ issue.getLastCommentContact().fullName() }}
-                        {% endif %}
-                    </small>
-                </td>
-                <td class="text-right">{{ issue.creationdate }}</td>
-            </tr>
-        {% else %}
-            <tr>
-                <td colspan="3" class="bg-warning">
-                    {{ i18n.trans('no-data') }}
-                </td>
-            </tr>
-        {% endfor %}
-    </tbody>
-</table>
+{% extends "Section/ListSection.html.twig" %}
+{% set section = fsc.getCurrentSection() %}
+
+{% block sectionBody %}
+    <div class="custom-scroll">
+        <table class="table table-striped table-hover">
+            <thead>
+                <tr>
+                    <th>{{ i18n.trans('title') }}</th>
+                    <th class="text-right">{{ i18n.trans('priority') }}</th>
+                    <th class="text-right">{{ i18n.trans('last-update') }}</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for issue in section.cursor %}
+                    <tr>
+                        <td>
+                            {% if issue.closed %}
+                                <i class="fas fa-lock fa-fw" aria-hidden="true" title="{{ i18n.trans('closed') }}"></i>
+                            {% endif %}
+                            #{{ issue.idissue }} {{ issue.getContactAlias() }}
+                            {% if issue.lastcommidcontacto == issue.idcontacto %}
+                                <i class="fas fa-comments" aria-hidden="true"></i> {{ issue.getLastCommentContact().alias() }}
+                            {% elseif issue.lastcommidcontacto %}
+                                <span class="text-success">
+                                    <i class="fas fa-comments" aria-hidden="true"></i> {{ issue.getLastCommentContact().alias() }}
+                                </span>
+                            {% endif %}
+                            <br/>
+                            <a href="{{ issue.url('public') }}">{{ issue.description() | raw }}</a>
+                        </td>
+                        <td class="text-right">
+                            {% if issue.priority >= 0 %}
+                                {{ issue.priority }}
+                            {% else %}
+                                <span class="text-error">{{ issue.priority }}</span>
+                            {% endif %}
+                        </td>
+                        <td class="text-right">{{ issue.lastmod }}</td>
+                    </tr>
+                {% else %}
+                    <tr>
+                        <td colspan="3" class="bg-warning">
+                            {{ i18n.trans('no-data') }}
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+{% endblock %}

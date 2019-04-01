@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -19,46 +19,47 @@
 namespace FacturaScripts\Plugins\Community\Controller;
 
 use FacturaScripts\Core\App\AppSettings;
-use FacturaScripts\Core\Base\ControllerPermissions;
 use FacturaScripts\Core\Base\DataBase\DataBaseWhere;
-use FacturaScripts\Dinamic\Model\User;
+use FacturaScripts\Plugins\Community\Lib;
+use FacturaScripts\Plugins\Community\Lib\WebPortal\PortalControllerWizard;
 use FacturaScripts\Plugins\Community\Model\Language;
 use FacturaScripts\Plugins\Community\Model\Translation;
-use FacturaScripts\Plugins\Community\Model\WebTeamLog;
-use FacturaScripts\Plugins\Community\Model\WebTeamMember;
-use FacturaScripts\Plugins\webportal\Lib\WebPortal\PortalController;
-use Symfony\Component\HttpFoundation\Response;
 
 /**
- * This class allow us to manage new plugins.
+ * This class allow us to add translations and languages to manage.
  *
  * @author Carlos García Gómez <carlos@facturascripts.com>
  */
-class AddTranslation extends PortalController
+class AddTranslation extends PortalControllerWizard
 {
 
+    use Lib\PointsMethodsTrait;
+
     /**
-     * * Runs the controller's private logic.
      *
-     * @param Response              $response
-     * @param User                  $user
-     * @param ControllerPermissions $permissions
+     * @var Language
      */
-    public function privateCore(&$response, $user, $permissions)
+    public $language;
+
+    /**
+     * 
+     * @return array
+     */
+    public function getPageData()
     {
-        parent::privateCore($response, $user, $permissions);
-        $this->commonCore();
+        $data = parent::getPageData();
+        $data['title'] = 'new-translation';
+
+        return $data;
     }
 
     /**
-     * Execute the public part of the controller.
-     *
-     * @param Response $response
+     * 
+     * @return int
      */
-    public function publicCore(&$response)
+    public function pointCost()
     {
-        parent::publicCore($response);
-        $this->commonCore();
+        return 1;
     }
 
     /**
@@ -66,85 +67,77 @@ class AddTranslation extends PortalController
      */
     protected function commonCore()
     {
-        if (empty($this->contact) && !$this->user) {
-            $this->setTemplate('Master/LoginToContinue');
-            return;
-        }
-
-        if ($this->newTranslation()) {
-            return;
-        }
-
         $this->setTemplate('AddTranslation');
+        $this->language = new Language();
+
+        $action = $this->request->request->get('action', '');
+        switch ($action) {
+            case 'new':
+                $name = $this->request->request->get('name', '');
+                if (!empty($name)) {
+                    $this->newTranslation($name);
+                }
+                break;
+
+            case 'new-language':
+                $code = $this->request->request->get('code', '');
+                $parentCode = $this->request->request->get('parent', '');
+                if ($this->user && !empty($code)) {
+                    $this->newLanguage($code, $parentCode);
+                }
+                break;
+        }
     }
 
     /**
-     * Return true if contact can add new plugins.
-     * If is a user, or is a accepted team member contact, can add new plugins, otherwise can't.
-     *
+     * 
+     * @param string $langCode
+     * @param string $parentCode
+     */
+    protected function cloneTranslations(string $langCode, string $parentCode)
+    {
+        $translationModel = new Translation();
+        $where = [new DataBaseWhere('langcode', $parentCode)];
+        foreach ($translationModel->all($where, [], 0, 0) as $trans) {
+            $newTrans = new Translation();
+            $newTrans->description = $trans->description;
+            $newTrans->idproject = $trans->idproject;
+            $newTrans->langcode = $langCode;
+            $newTrans->name = $trans->name;
+            $newTrans->translation = $trans->translation;
+            $newTrans->save();
+        }
+    }
+
+    /**
+     * 
+     * @param string $code
+     * @param string $parentCode
      *
      * @return bool
      */
-    protected function contactCanAdd(): bool
+    protected function newLanguage(string $code, string $parentCode): bool
     {
-        if ($this->user) {
+        $language = new Language();
+
+        /// language already exists?
+        $where = [new DataBaseWhere('langcode', $code)];
+        if ($language->loadFromCode('', $where)) {
+            $this->miniLog->error($this->i18n->trans('duplicate-record'));
             return true;
         }
 
-        if (null === $this->contact) {
-            return false;
-        }
+        /// save new language
+        $language->description = $code;
+        $language->langcode = $code;
+        $language->parentcode = $parentCode;
+        if ($language->save()) {
+            $this->cloneTranslations($code, $parentCode);
+            $language->updateStats();
+            $language->save();
 
-        $idteamtra = AppSettings::get('community', 'idteamtra', '');
-        if (empty($idteamtra)) {
-            return false;
-        }
-
-        $member = new WebTeamMember();
-        $where = [
-            new DataBaseWhere('idcontacto', $this->contact->idcontacto),
-            new DataBaseWhere('idteam', $idteamtra),
-            new DataBaseWhere('accepted', true)
-        ];
-
-        return $member->loadFromCode('', $where);
-    }
-
-    protected function newTranslation(): bool
-    {
-        $name = $this->request->get('name', '');
-        $description = $this->request->get('description', '');
-        $translation = $this->request->get('translation', '');
-        if (empty($name) || empty($description) || empty($translation)) {
-            return false;
-        }
-
-        $langModel = new Language();
-        foreach ($langModel->all([], [], 0, 0) as $language) {
-            if ($language->numtranslations === 0) {
-                continue;
-            }
-
-            $newTrans = new Translation();
-            $newTrans->description = $description;
-            $newTrans->idproject = (int) AppSettings::get('community', 'idproject');
-            $newTrans->langcode = $language->langcode;
-            $newTrans->name = $name;
-            $newTrans->translation = $translation;
-            if (!$newTrans->save()) {
-                return false;
-            }
-        }
-
-        $transModel = new Translation();
-        $where = [
-            new DataBaseWhere('name', $name),
-            new DataBaseWhere('langcode', AppSettings::get('community', 'mainlanguage')),
-        ];
-        if ($transModel->loadFromCode('', $where)) {
-            $this->miniLog->notice($this->i18n->trans('record-updated-correctly'));
-            $this->saveTeamLog($transModel);
-            $this->response->headers->set('Refresh', '0; ' . $transModel->url('public'));
+            /// redit to new language
+            $this->response->headers->set('Refresh', '0; ' . $language->url('public'));
             return true;
         }
 
@@ -152,25 +145,60 @@ class AddTranslation extends PortalController
     }
 
     /**
-     * Store a log detail for this new translation.
-     * 
-     * @param Translation $translation
+     * Adds a new translation in every important language.
+     *
+     * @param string $name
+     *
+     * @return bool
      */
-    protected function saveTeamLog(Translation $translation)
+    protected function newTranslation(string $name): bool
     {
+        /// contact is in translation team?
         $idteamtra = AppSettings::get('community', 'idteamtra', '');
-        if (empty($idteamtra)) {
-            return;
+        if (!$this->contactInTeam($idteamtra)) {
+            $this->contactNotInTeamError($idteamtra);
+            return false;
         }
 
-        $teamLog = new WebTeamLog();
-        $teamLog->description = 'New translation: ' . $translation->langcode . ' / ' . $translation->name;
-        $teamLog->idteam = $idteamtra;
-        $teamLog->link = $translation->url('public');
-        if ($this->contact) {
-            $teamLog->idcontacto = $this->contact->idcontacto;
+        /// translation exists?
+        $transModel = new Translation();
+        $where = [new DataBaseWhere('name', $name)];
+        if ($transModel->loadFromCode('', $where)) {
+            $this->miniLog->error($this->i18n->trans('duplicate-record'));
+            return true;
         }
 
-        $teamLog->save();
+        if (!$this->contactHasPoints($this->pointCost())) {
+            $this->redirToYouNeedMorePointsPage();
+            return false;
+        }
+
+        /// save new translation in every important language
+        $langModel = new Language();
+        $mainLangcode = AppSettings::get('community', 'mainlanguage');
+        $mainProjectId = (int) AppSettings::get('community', 'idproject');
+        foreach ($langModel->all([], [], 0, 0) as $language) {
+            $newTrans = new Translation();
+            $newTrans->description = $name;
+            $newTrans->idproject = $mainProjectId;
+            $newTrans->langcode = $language->langcode;
+            $newTrans->name = $name;
+            $newTrans->translation = $name;
+            if (!$newTrans->save()) {
+                return false;
+            }
+
+            if ($language->langcode == $mainLangcode) {
+                $description = 'New translation: ' . $newTrans->langcode . ' / ' . $newTrans->name;
+                $link = $newTrans->url('public');
+                $this->saveTeamLog($idteamtra, $description, $link);
+
+                /// redit to translation in main language
+                $this->response->headers->set('Refresh', '0; ' . $newTrans->url('public'));
+            }
+        }
+
+        $this->subtractPoints();
+        return true;
     }
 }

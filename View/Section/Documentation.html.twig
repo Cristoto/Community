@@ -1,24 +1,29 @@
-<ul>
-    {% for docPage in section.cursor %}
-        <li>
-            <a href="{{ docPage.url('public') }}" target="_blank">{{ docPage.title }}</a>
-            {% for childrenPage in docPage.getChildrenPages() %}
-                <ul>
-                    <li>
-                        <a href="{{ childrenPage.url('public') }}" target="_blank">{{ childrenPage.title }}</a>
-                    </li>
-                </ul>
-            {% endfor %}
-        </li>
-    {% else %}
-        <li>
-            {{ i18n.trans('no-data') }}
-        </li>
-    {% endfor %}
-</ul>
+{% extends "Section/ListSection.html.twig" %}
+{% set section = fsc.getCurrentSection() %}
 
-{% if fsc.contactCanEdit() %}
-    <a class="btn" href="{{ asset('EditWebDocPage?idproject=' ~ fsc.getProject().idproject ~ '&langcode=' ~ fsc.webPage.langcode) }}">
-        <i class="fa fa-file-o fa-fw" aria-hidden="true"></i> {{ i18n.trans('add') }}
-    </a>
-{% endif %}
+{% block sectionBody %}
+    <ul>
+        {% for docPage in section.cursor %}
+            <li>
+                <a href="{{ docPage.url('public') }}" target="_blank">{{ docPage.title }}</a>
+                {% for childrenPage in docPage.getChildrenPages() %}
+                    <ul>
+                        <li>
+                            <a href="{{ childrenPage.url('public') }}" target="_blank">{{ childrenPage.title }}</a>
+                        </li>
+                    </ul>
+                {% endfor %}
+            </li>
+        {% else %}
+            <li>
+                {{ i18n.trans('no-data') }}
+            </li>
+        {% endfor %}
+    </ul>
+
+    {% if fsc.contactCanEdit() %}
+        <a class="btn" href="{{ asset('EditWebDocPage?idproject=' ~ fsc.getMainModel().idproject ~ '&langcode=' ~ fsc.webPage.langcode) }}">
+            <i class="fas fa-file fa-fw" aria-hidden="true"></i> {{ i18n.trans('add') }}
+        </a>
+    {% endif %}
+{% endblock %}

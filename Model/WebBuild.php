@@ -19,12 +19,13 @@
 namespace FacturaScripts\Plugins\Community\Model;
 
 use FacturaScripts\Core\Model\Base;
-use FacturaScripts\Core\Model\AttachedFile;
+use FacturaScripts\Dinamic\Model\AttachedFile;
+use FacturaScripts\Plugins\Community\Lib\PluginBuildValidator;
 
 /**
- * Description of WebFile
+ * Description of WebBuild
  *
- * @author Carlos García Gómez
+ * @author Carlos García Gómez <carlos@facturascripts.com>
  */
 class WebBuild extends Base\ModelClass
 {
@@ -107,7 +108,7 @@ class WebBuild extends Base\ModelClass
         $this->downloads = 0;
         $this->hour = date('H:i:s');
         $this->stable = false;
-        $this->version = 1.0;
+        $this->version = 0.1;
     }
 
     /**
@@ -132,12 +133,19 @@ class WebBuild extends Base\ModelClass
      */
     public function fileName(): string
     {
-        $project = new WebProject();
-        if ($project->loadFromCode($this->idproject)) {
-            return $project->name . '-' . $this->version . '.zip';
+        $extension = 'zip';
+        $atFile = $this->getAttachedFile();
+        if ($atFile) {
+            $parts = explode('.', $atFile->filename);
+            $extension = end($parts);
         }
 
-        return $this->idbuild . '.zip';
+        $project = new WebProject();
+        if ($project->loadFromCode($this->idproject)) {
+            return $project->name . '-' . $this->version . '.' . $extension;
+        }
+
+        return $this->idbuild . '.' . $extension;
     }
 
     /**
@@ -211,15 +219,17 @@ class WebBuild extends Base\ModelClass
      */
     public function test()
     {
-        if (null === $this->idfile) {
-            $attachedFile = new AttachedFile();
-            $attachedFile->path = $this->path;
-            if (!$attachedFile->save()) {
+        if (empty($this->idfile)) {
+            $filePath = FS_FOLDER . DIRECTORY_SEPARATOR . 'MyFiles' . DIRECTORY_SEPARATOR . $this->path;
+            if (!$this->testPlugin($filePath)) {
+                unlink($filePath);
                 return false;
             }
 
-            if ($attachedFile->mimetype !== 'application/zip') {
-                self::$miniLog->alert(self::$i18n->trans('only-zip-files'));
+            $attachedFile = new AttachedFile();
+            $attachedFile->path = $this->path;
+            if (!$attachedFile->save()) {
+                unlink($filePath);
                 return false;
             }
 
@@ -241,5 +251,38 @@ class WebBuild extends Base\ModelClass
     public function url(string $type = 'auto', string $list = 'List')
     {
         return parent::url($type, 'ListWebProject?active=List');
+    }
+
+    /**
+     * 
+     * @param string $filePath
+     *
+     * @return bool
+     */
+    protected function testPlugin($filePath)
+    {
+        $project = new WebProject();
+        if (!$project->loadFromCode($this->idproject)) {
+            return false;
+        }
+
+        if (!$project->plugin) {
+            return true;
+        }
+
+        /// is a zip file?
+        if (mime_content_type($filePath) !== 'application/zip') {
+            self::$miniLog->alert(self::$i18n->trans('only-zip-files'));
+            return false;
+        }
+
+        /// is zip file ok?
+        $params = ['version' => $this->version, 'name' => $project->name];
+        $validator = new PluginBuildValidator();
+        if ($validator->validateZip($filePath, $params)) {
+            return true;
+        }
+
+        return false;
     }
 }

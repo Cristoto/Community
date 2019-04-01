@@ -58,6 +58,18 @@ class ContactForm extends PortalController
     public $formTrees;
 
     /**
+     * 
+     * @return array
+     */
+    public function getPageData()
+    {
+        $data = parent::getPageData();
+        $data['title'] = 'contact';
+
+        return $data;
+    }
+
+    /**
      * * Runs the controller's private logic.
      *
      * @param Response              $response
@@ -89,7 +101,7 @@ class ContactForm extends PortalController
      * @param string $icon
      * @param string $observations
      */
-    protected function addEndAction(string $title, string $link = '', string $icon = 'fa-circle-o', string $observations = '')
+    protected function addEndAction(string $title, string $link = '', string $icon = 'fas fa-circle-o', string $observations = '')
     {
         $this->endActions[] = [
             'icon' => $icon,
@@ -104,7 +116,7 @@ class ContactForm extends PortalController
      */
     protected function commonCore()
     {
-        if (null === $this->contact) {
+        if (empty($this->contact)) {
             $this->setTemplate('Master/LoginToContinue');
             return;
         }
@@ -132,8 +144,10 @@ class ContactForm extends PortalController
             return;
         }
 
+        $ipAddress = is_null($this->request->getClientIp()) ? '::1' : $this->request->getClientIp();
+        $this->currentTree->increaseVisitCount($ipAddress);
+
         $this->formTrees = $this->currentTree->getChildrenPages();
-        $this->currentTree->increaseVisitCount($this->request->getClientIp());
         switch ($this->currentTree->endaction) {
             case 'send-issue':
                 $this->response->headers->set('Refresh', '0; ' . self::SEND_ISSUE_CONTROLLER . '?idtree=' . $this->currentTree->idtree);
@@ -164,7 +178,7 @@ class ContactForm extends PortalController
         $where = [new DataBaseWhere('plugin', true)];
         foreach ($pluginProject->all($where, ['name' => 'ASC'], 0, 0) as $plugin) {
             $link = self::SEND_ISSUE_CONTROLLER . '?idtree=' . $this->currentTree->idtree . '&idproject=' . $plugin->idproject;
-            $this->addEndAction($plugin->name, $link, 'fa-plug');
+            $this->addEndAction($plugin->name, $link, 'fas fa-plug');
         }
     }
 }

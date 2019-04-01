@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -20,20 +20,24 @@ namespace FacturaScripts\Plugins\Community\Controller;
 
 use FacturaScripts\Core\App\AppSettings;
 use FacturaScripts\Core\Base\DataBase\DataBaseWhere;
-use FacturaScripts\Dinamic\Lib\EmailTools;
-use FacturaScripts\Plugins\webportal\Lib\WebPortal\SectionController;
+use FacturaScripts\Plugins\Community\Lib;
 use FacturaScripts\Plugins\Community\Model\Issue;
 use FacturaScripts\Plugins\Community\Model\IssueComment;
+use FacturaScripts\Plugins\Community\Model\WebTeamLog;
 use FacturaScripts\Plugins\Community\Model\WebTeamMember;
+use FacturaScripts\Plugins\webportal\Lib\WebPortal\EditSectionController;
 use Symfony\Component\HttpFoundation\Response;
 
 /**
  * Description of EditIssue
  *
- * @author Carlos García Gómez <carlos@facturascripts.com>
+ * @author Carlos García Gómez          <carlos@facturascripts.com>
+ * @author Cristo M. Estévez Hernández  <cristom.estevez@gmail.com>
  */
-class EditIssue extends SectionController
+class EditIssue extends EditSectionController
 {
+
+    use Lib\PointsMethodsTrait;
 
     /**
      * The selected issue.
@@ -43,39 +47,70 @@ class EditIssue extends SectionController
     protected $issue;
 
     /**
-     * Return the gravatar url to show email avatar.
+     * Returns true if contact can edit this issue.
      *
-     * @param string $email
-     * @param int    $size
-     *
-     * @return string
+     * @return bool
      */
-    public function getGravatar(string $email, int $size = 80): string
+    public function contactCanEdit()
     {
-        return 'https://www.gravatar.com/avatar/' . md5(strtolower(trim($email))) . '?s=' . $size;
+        if ($this->user) {
+            return true;
+        }
+
+        if (empty($this->contact)) {
+            return false;
+        }
+
+        $member = new WebTeamMember();
+        $where = [
+            new DataBaseWhere('idcontacto', $this->contact->idcontacto),
+            new DataBaseWhere('idteam', $this->getMainModel()->idteam),
+            new DataBaseWhere('accepted', true)
+        ];
+
+        return $member->loadFromCode('', $where);
+    }
+
+    /**
+     * Returns true if contact can see this issue.
+     *
+     * @return bool
+     */
+    public function contactCanSee()
+    {
+        if ($this->contactCanEdit()) {
+            return true;
+        }
+
+        if (empty($this->contact)) {
+            return false;
+        }
+
+        return $this->getMainModel()->idcontacto === $this->contact->idcontacto;
     }
 
     /**
      * Return the related issue.
+     * 
+     * @param bool $reload
      *
      * @return Issue
      */
-    public function getIssue(): Issue
+    public function getMainModel($reload = false)
     {
-        if (isset($this->issue)) {
+        if (isset($this->issue) && !$reload) {
             return $this->issue;
         }
 
-        $issue = new Issue();
-        $code = $this->request->get('code', '');
-        if (!empty($code)) {
-            $issue->loadFromCode($code);
-            return $issue;
+        $this->issue = new Issue();
+        $uri = explode('/', $this->uri);
+        if ($this->issue->loadFromCode(end($uri))) {
+            return $this->issue;
         }
 
-        $uri = explode('/', $this->uri);
-        $issue->loadFromCode(end($uri));
-        return $issue;
+        $code = $this->request->query->get('code', '');
+        $this->issue->loadFromCode($code);
+        return $this->issue;
     }
 
     /**
@@ -85,7 +120,7 @@ class EditIssue extends SectionController
      */
     protected function addNewComment(): bool
     {
-        if (!$this->contactCanEdit()) {
+        if (!$this->contactCanSee()) {
             return false;
         }
 
@@ -99,7 +134,7 @@ class EditIssue extends SectionController
             return false;
         }
 
-        $issue = $this->getIssue();
+        $issue = $this->getMainModel();
         $comment = new IssueComment();
         $comment->body = $text;
         $comment->idcontacto = $this->contact->idcontacto;
@@ -112,51 +147,56 @@ class EditIssue extends SectionController
         /// update issue
         $issue->lastcommidcontacto = $this->contact->idcontacto;
         $issue->closed = ($close === 'TRUE') ? true : $issue->closed;
-        $issue->save();
+        if ($issue->save()) {
+            $this->evaluateSolution($issue);
+        }
 
         $this->miniLog->notice($this->i18n->trans('record-updated-correctly'));
-        $this->notifyComment($issue, $comment);
+        $this->response->headers->set('Refresh', '0; ' . $issue->url('public') . '#comm' . $comment->primaryColumnValue());
         return true;
     }
 
     /**
-     * Returns true if contact can edit this issue.
-     *
-     * @return bool
+     * 
+     * @param string $name
      */
-    protected function contactCanEdit(): bool
+    protected function createSectionComments($name = 'ListIssueComment')
     {
-        if (null === $this->contact) {
-            return false;
-        }
-
-        $issue = $this->getIssue();
-        if ($issue->idcontacto === $this->contact->idcontacto) {
-            return true;
-        }
-
-        $member = new WebTeamMember();
-        $where = [
-            new DataBaseWhere('idcontacto', $this->contact->idcontacto),
-            new DataBaseWhere('idteam', $issue->idteam),
-            new DataBaseWhere('accepted', true)
-        ];
-
-        return $member->loadFromCode('', $where);
+        $this->addListSection($name, 'IssueComment', 'comments', 'fas fa-comments');
+        $this->sections[$name]->template = 'Section/IssueComments.html.twig';
+        $this->addOrderOption($name, ['creationdate'], 'date');
+        $this->addOrderOption($name, ['idcontacto'], 'user');
     }
 
     /**
-     * Returns true if contact can see this issue.
-     *
-     * @return bool
+     * 
+     * @param string $name
      */
-    protected function contactCanSee(): bool
+    protected function createSectionEditComments($name = 'EditIssueComment')
     {
-        if ($this->contactCanEdit()) {
-            return true;
-        }
+        $this->addEditListSection($name, 'IssueComment', 'comments', 'fas fa-edit', 'edit');
+    }
 
-        return false;
+    /**
+     * 
+     * @param string $name
+     */
+    protected function createSectionEditIssue($name = 'EditIssue')
+    {
+        $this->addEditSection($name, 'Issue', 'issue', 'fas fa-edit', 'edit');
+    }
+
+    /**
+     * 
+     * @param string $name
+     */
+    protected function createSectionRelatedIssues($name = 'ListIssue', $title = 'related', $group = '')
+    {
+        $this->addListSection($name, 'Issue', $title, 'fas fa-question-circle', $group);
+        $this->sections[$name]->template = 'Section/Issues.html.twig';
+        $this->addSearchOptions($name, ['body', 'creationroute']);
+        $this->addOrderOption($name, ['creationdate'], 'date', 2);
+        $this->addOrderOption($name, ['lastmod'], 'last-update');
     }
 
     /**
@@ -164,17 +204,86 @@ class EditIssue extends SectionController
      */
     protected function createSections()
     {
-        $this->addSection('issue', ['fixed' => true, 'template' => 'Section/Issue']);
+        $this->fixedSection();
+        $this->addHtmlSection('issue', 'issue', 'Section/Issue');
 
-        $this->addListSection('comments', 'IssueComment', 'Section/IssueComments', 'comments', 'fa-comments');
-        $this->addOrderOption('comments', 'creationdate', 'date');
-        $this->addOrderOption('comments', 'idcontacto', 'user');
-        $this->addButton('comments', $this->getIssue()->url('public'), 'reload', 'fa-refresh');
+        $this->createSectionComments();
+        $this->createSectionRelatedIssues();
+        $this->createSectionRelatedIssues('ListIssue-contact', 'issues', 'contact');
 
-        $this->addListSection('userissues', 'Issue', 'Section/Issues', 'related', 'fa-question-circle');
-        $this->addSearchOptions('userissues', ['body', 'creationroute']);
-        $this->addOrderOption('userissues', 'creationdate', 'date', 2);
-        $this->addOrderOption('userissues', 'lastmod', 'last-update');
+        if ($this->contactCanEdit()) {
+            $this->createSectionEditIssue();
+        }
+
+        if ($this->user) {
+            $this->createSectionEditComments();
+        }
+    }
+
+    /**
+     * Delete the comment specify by the user.
+     *
+     * @return bool
+     */
+    protected function deleteComment()
+    {
+        if (!$this->contactCanEdit()) {
+            $this->miniLog->alert($this->i18n->trans('not-allowed-delete'));
+            $this->response->setStatusCode(Response::HTTP_UNAUTHORIZED);
+            return false;
+        }
+
+        $idComment = $this->request->request->get('idcomment', '');
+        $issueComment = new IssueComment();
+        if ($issueComment->loadFromCode($idComment) && $issueComment->delete()) {
+            $this->miniLog->notice($this->i18n->trans('record-deleted-correctly'));
+
+            /// update issue
+            $this->getMainModel()->lastcommidcontacto = null;
+            foreach ($this->getMainModel()->getComments() as $comment) {
+                $this->getMainModel()->lastcommidcontacto = $comment->idcontacto;
+            }
+            $this->getMainModel()->save();
+            return true;
+        }
+
+        $this->miniLog->alert($this->i18n->trans('record-deleted-error'));
+        return false;
+    }
+
+    /**
+     * 
+     * @param Issue $issue
+     *
+     * @return bool
+     */
+    protected function evaluateSolution($issue)
+    {
+        /// issue must be closed and last comment from author to continue
+        if (!$issue->closed || $issue->lastcommidcontacto != $issue->idcontacto) {
+            return false;
+        }
+
+        $idcontacts = [];
+        foreach ($issue->getComments() as $comm) {
+            if (empty($comm->idcontacto) || $comm->idcontacto == $issue->idcontacto) {
+                continue;
+            }
+
+            $idcontacts[] = $comm->idcontacto;
+        }
+
+        if (empty($idcontacts)) {
+            return false;
+        }
+
+        shuffle($idcontacts);
+        $teamLog = new WebTeamLog();
+        $teamLog->description = $issue->title() . ' solved';
+        $teamLog->idcontacto = $idcontacts[0];
+        $teamLog->idteam = AppSettings::get('community', 'idteamsup');
+        $teamLog->link = $issue->url();
+        return $teamLog->save();
     }
 
     /**
@@ -187,6 +296,10 @@ class EditIssue extends SectionController
     protected function execPreviousAction(string $action)
     {
         switch ($action) {
+            case 'delete-comment':
+                $this->deleteComment();
+                return true;
+
             case 'new-comment':
                 $this->addNewComment();
                 return true;
@@ -206,24 +319,36 @@ class EditIssue extends SectionController
      */
     protected function loadData(string $sectionName)
     {
+        $issue = $this->getMainModel();
         switch ($sectionName) {
-            case 'comments':
-                $issue = $this->getIssue();
-                $where = [new DataBaseWhere('idissue', $issue->idissue)];
-                $this->loadListSection($sectionName, $where);
+            case 'EditIssue':
+                $this->sections[$sectionName]->loadData($issue->primaryColumnValue());
                 break;
 
             case 'issue':
                 $this->loadIssue();
                 break;
 
-            case 'userissues':
-                $issue = $this->getIssue();
+            case 'EditIssueComment':
+            case 'ListIssueComment':
+                $where = [new DataBaseWhere('idissue', $issue->idissue)];
+                $this->sections[$sectionName]->loadData('', $where);
+                break;
+
+            case 'ListIssue':
+                $where = [
+                    new DataBaseWhere('creationroute', $issue->creationroute),
+                    new DataBaseWhere('idissue', $issue->idissue, '!=')
+                ];
+                $this->sections[$sectionName]->loadData('', $where);
+                break;
+
+            case 'ListIssue-contact':
                 $where = [
                     new DataBaseWhere('idcontacto', $issue->idcontacto),
                     new DataBaseWhere('idissue', $issue->idissue, '!=')
                 ];
-                $this->loadListSection($sectionName, $where);
+                $this->sections[$sectionName]->loadData('', $where);
                 break;
         }
     }
@@ -233,9 +358,8 @@ class EditIssue extends SectionController
      */
     protected function loadIssue()
     {
-        $this->issue = $this->getIssue();
-        if (!$this->issue->exists()) {
-            $this->miniLog->alert($this->i18n->trans('no-data'));
+        if (!$this->getMainModel(true)->exists()) {
+            $this->miniLog->warning($this->i18n->trans('no-data'));
             $this->response->setStatusCode(Response::HTTP_NOT_FOUND);
             $this->webPage->noindex = true;
             $this->setTemplate('Master/Portal404');
@@ -243,56 +367,45 @@ class EditIssue extends SectionController
         }
 
         if (!$this->contactCanSee()) {
-            $this->miniLog->alert($this->i18n->trans('access-denied'));
+            $this->miniLog->warning($this->i18n->trans('access-denied'));
             $this->response->setStatusCode(Response::HTTP_FORBIDDEN);
             $this->webPage->noindex = true;
 
-            $template = (null === $this->contact) ? 'Master/LoginToContinue' : 'Master/AccessDenied';
+            $template = empty($this->contact) ? 'Master/LoginToContinue' : 'Master/AccessDenied';
             $this->setTemplate($template);
             return;
         }
 
-        $this->title = $this->issue->title();
-        $this->description = $this->issue->description();
-        $this->issue->increaseVisitCount($this->request->getClientIp());
-    }
+        $this->title = $this->getMainModel()->title();
+        $this->description = $this->getMainModel()->description();
+        $this->canonicalUrl = $this->getMainModel()->url('public');
 
-    /**
-     * Notify a new comment on an existing issue.
-     *
-     * @param Issue        $issue
-     * @param IssueComment $comment
-     */
-    protected function notifyComment($issue, $comment)
-    {
-        if ($issue->idcontacto === $comment->idcontacto) {
-            return;
-        }
-
-        $contact = $issue->getContact();
-        $link = AppSettings::get('webportal', 'url', '') . $issue->url('public');
-        $title = 'Issue #' . $issue->idissue . ': comentario de ' . $issue->getLastCommentContact()->fullName();
-        $txt = '<a href="' . $link . '">Issue #' . $issue->idissue . '</a><br/>' . $comment->body;
-
-        $emailTools = new EmailTools();
-        $mail = $emailTools->newMail();
-        $mail->addAddress($contact->email, $contact->fullName());
-        $mail->Subject = $title;
-        $mail->msgHTML($txt);
-        if ($mail->send()) {
-            $this->miniLog->notice($this->i18n->trans('email-sent'));
-        }
+        $ipAddress = is_null($this->request->getClientIp()) ? '::1' : $this->request->getClientIp();
+        $this->getMainModel()->increaseVisitCount($ipAddress);
     }
 
     /**
      * Re-open an existing issue.
+     * 
+     * @return bool
      */
     protected function reopenAction()
     {
-        if ($this->contactCanEdit()) {
-            $issue = $this->getIssue();
-            $issue->closed = false;
-            $issue->save();
+        if (!$this->contactCanSee()) {
+            return false;
         }
+
+        if (!$this->contactHasPoints($this->pointCost())) {
+            return $this->redirToYouNeedMorePointsPage();
+        }
+
+        $issue = $this->getMainModel();
+        $issue->closed = false;
+        if ($issue->save()) {
+            $this->subtractPoints();
+            return true;
+        }
+
+        return false;
     }
 }

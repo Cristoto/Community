@@ -30,6 +30,10 @@
         <type>serial</type>
         <null>NO</null>
     </column>
+    <column>
+        <name>observations</name>
+        <type>text</type>
+    </column>
     <constraint>
         <name>webteams_members_pkey</name>
         <type>PRIMARY KEY (id)</type>
@@ -39,7 +43,11 @@
         <type>UNIQUE (idteam,idcontacto)</type>
     </constraint>
     <constraint>
-        <name>ca_webteams_contactos</name>
+        <name>ca_webteams_members_contactos</name>
         <type>FOREIGN KEY (idcontacto) REFERENCES contactos (idcontacto) ON DELETE CASCADE ON UPDATE CASCADE</type>
+    </constraint>
+    <constraint>
+        <name>ca_webteams_members_teams</name>
+        <type>FOREIGN KEY (idteam) REFERENCES webteams (idteam) ON DELETE CASCADE ON UPDATE CASCADE</type>
     </constraint>
 </table>

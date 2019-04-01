@@ -1,7 +1,7 @@
 <?php
 /**
  * This file is part of Community plugin for FacturaScripts.
- * Copyright (C) 2018 Carlos Garcia Gomez <carlos@facturascripts.com>
+ * Copyright (C) 2018-2019 Carlos Garcia Gomez <carlos@facturascripts.com>
  *
  * This program is free software: you can redistribute it and/or modify
  * it under the terms of the GNU Lesser General Public License as
@@ -22,23 +22,18 @@ use FacturaScripts\Core\Base\DataBase\DataBaseWhere;
 use FacturaScripts\Core\Base\Utils;
 use FacturaScripts\Core\Model\Base;
 use FacturaScripts\Plugins\webportal\Model\WebPage;
+use FacturaScripts\Plugins\webportal\Model\Base\WebPageClass;
 
 /**
  * Description of WebTeam
  *
- * @author carlos
+ * @author Carlos García Gómez <carlos@facturascripts.com>
  */
-class WebTeam extends Base\ModelClass
+class WebTeam extends WebPageClass
 {
 
     use Base\ModelTrait;
-
-    /**
-     * Creation date.
-     *
-     * @var string
-     */
-    public $creationdate;
+    use Common\ContactTrait;
 
     /**
      *
@@ -73,6 +68,12 @@ class WebTeam extends Base\ModelClass
 
     /**
      *
+     * @var bool
+     */
+    public $private;
+
+    /**
+     *
      * @var array
      */
     private static $urls = [];
@@ -83,9 +84,9 @@ class WebTeam extends Base\ModelClass
     public function clear()
     {
         parent::clear();
-        $this->creationdate = date('d-m-Y');
         $this->nummembers = 0;
         $this->numrequests = 0;
+        $this->private = false;
     }
 
     /**
@@ -132,10 +133,6 @@ class WebTeam extends Base\ModelClass
         if (strlen($this->name) < 1) {
             self::$miniLog->alert(self::$i18n->trans('invalid-column-lenght', ['%column%' => 'name', '%min%' => '1', '%max%' => '50']));
             return false;
-        }
-
-        if (empty($this->creationdate)) {
-            $this->creationdate = date('d-m-Y');
         }
 
         $this->updateStats();
@@ -203,5 +200,26 @@ class WebTeam extends Base\ModelClass
         }
 
         return '#';
+    }
+
+    /**
+     * 
+     * @param array $values
+     *
+     * @return bool
+     */
+    protected function saveInsert(array $values = [])
+    {
+        if (parent::saveInsert($values)) {
+            $member = new WebTeamMember();
+            $member->accepted = true;
+            $member->idcontacto = $this->idcontacto;
+            $member->idteam = $this->idteam;
+            $member->save();
+
+            return true;
+        }
+
+        return false;
     }
 }

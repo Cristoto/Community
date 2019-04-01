@@ -18,6 +18,7 @@
  */
 namespace FacturaScripts\Plugins\Community\Model;
 
+use FacturaScripts\Core\Base\Utils;
 use FacturaScripts\Core\Model\Base;
 
 /**
@@ -57,6 +58,12 @@ class WebTeamMember extends Base\ModelClass
      * @var int
      */
     public $idteam;
+
+    /**
+     *
+     * @var string
+     */
+    public $observations;
 
     /**
      * Reset the values of all model properties.
@@ -101,6 +108,17 @@ class WebTeamMember extends Base\ModelClass
     }
 
     /**
+     * 
+     * @return bool
+     */
+    public function test()
+    {
+        $this->observations = Utils::noHtml($this->observations);
+
+        return parent::test();
+    }
+
+    /**
      * Returns the url where to see / modify the data.
      *
      * @param string $type
@@ -111,8 +129,14 @@ class WebTeamMember extends Base\ModelClass
     public function url(string $type = 'auto', string $list = 'List')
     {
         $team = new WebTeam();
-        if ($type == 'accept' && $team->loadFromCode($this->idteam)) {
-            return $team->url('public') . '?action=accept-request&idrequest=' . $this->id;
+        if ($team->loadFromCode($this->idteam)) {
+            switch ($type) {
+                case 'accept':
+                    return $team->url('public') . '?action=accept-request&idrequest=' . $this->id;
+
+                case 'expel':
+                    return $team->url('public') . '?action=expel&idrequest=' . $this->id;
+            }
         }
 
         return parent::url($type, 'ListWebProject?active=List');
